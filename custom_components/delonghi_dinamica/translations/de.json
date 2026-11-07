@@ -1,0 +1,20 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "DeLonghi Dinamica Plus",
+        "description": "Bluetooth-MAC-Adresse der Maschine eingeben. Ein Bluetooth-Proxy muss in Home Assistant eingerichtet sein.",
+        "data": {
+          "mac_address": "Bluetooth-MAC-Adresse",
+          "name": "Name"
+        }
+      }
+    },
+    "error": {
+      "invalid_mac": "Ungültige Bluetooth-MAC-Adresse"
+    },
+    "abort": {
+      "already_configured": "Maschine bereits eingerichtet"
+    }
+  }
+}
