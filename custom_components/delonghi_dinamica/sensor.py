@@ -15,9 +15,6 @@ STATISTICS = {
     "descaling_count": ("Entkalkungen gesamt", None),
     "filter_change_count": ("Filterwechsel gesamt", None),
     "milk_cleaning_count": ("Milchsystem-Reinigungen gesamt", None),
-    "tea_total": ("Tee gesamt", None),
-    "chocolate_total": ("Schokolade gesamt", None),
-    "cold_milk_total": ("Kalte Milch gesamt", None),
 }
 
 
