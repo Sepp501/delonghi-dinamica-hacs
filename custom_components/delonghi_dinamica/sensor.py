@@ -14,7 +14,6 @@ STATISTICS = {
     "milk_coffee_total": ("Milchkaffee gesamt", None),
     "water_liters": ("Wasserverbrauch gesamt", "L"),
     "descaling_count": ("Entkalkungen gesamt", None),
-    "filter_change_count": ("Filterwechsel gesamt", None),
     "milk_cleaning_count": ("Milchsystem-Reinigungen gesamt", None),
 }
 
