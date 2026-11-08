@@ -335,8 +335,17 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     await asyncio.sleep(0.6)
                     original_names = await read_names()
                     original = get_test_name(original_names)
+                    # This is a deliberately isolated 03/03 index experiment.
+                    # It could affect the third custom-name slot, currently
+                    # user-configured. Preserve THAT slot's existing icon.
+                    experimental_slot = 2
+                    if len(original_names) != 6:
+                        raise ValueError("Namensliste ist unvollständig")
+                    write_target = original_names[experimental_slot]
                     report["previous_name"] = original["name"]
-                    report["icon"] = original["icon"]
+                    report["icon"] = write_target["icon"]
+                    report["before_names"] = original_names
+                    report["candidate_write_index_zero_based"] = experimental_slot
                     # Unconfigured custom slots can have an empty real name.
                     # "Frei 1" is only a Home Assistant display fallback.
                     # Never overwrite an unexpected existing custom name.
@@ -348,7 +357,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     if new_name == original["name"]:
                         raise ValueError("Bitte einen neuen Getränkenamen eingeben")
 
-                    payload = build_name_write(new_name, original["icon"])
+                    payload = build_name_write(new_name, write_target["icon"])
                     report["packet_hex"] = payload.hex(" ").upper()
                     _LOGGER.warning(
                         "EXPERIMENTAL 0xAB NAME WRITE Sepp/Frei1: %s",
@@ -368,16 +377,34 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     await asyncio.sleep(0.7)
                     updated_names = await read_names()
                     new = get_test_name(updated_names)
+                    report["after_names"] = updated_names
                     report["actual_name"] = new["name"]
                     report["actual_icon"] = new["icon"]
-                    if new["name"] != new_name or new["icon"] != original["icon"]:
+                    changed_slots = [
+                        index for index, (old, current) in enumerate(
+                            zip(original_names, updated_names)
+                        ) if old != current
+                    ]
+                    report["changed_name_slots_zero_based"] = changed_slots
+                    # The experiment is considered successful ONLY when a
+                    # single name slot changes and its icon stays unchanged.
+                    if len(changed_slots) != 1:
                         raise ValueError(
                             "Namensspeicherung nicht bestätigt: "
-                            f"Soll '{new_name}', Ist '{new['name']}' "
-                            f"(Icon vorher {original['icon']}, nachher {new['icon']})"
+                            f"geänderte Slots={changed_slots}; Soll='{new_name}'"
+                        )
+                    changed_index = changed_slots[0]
+                    changed_before = original_names[changed_index]
+                    changed_after = updated_names[changed_index]
+                    if (changed_after["name"] != new_name
+                            or changed_before["icon"] != changed_after["icon"]):
+                        raise ValueError(
+                            "Namensspeicherung nicht bestätigt: "
+                            f"Slot={changed_index}, Ist={changed_after!r}"
                         )
                     report["verified"] = True
-                    report["result"] = "Getränkename über 0xAA bestätigt"
+                    report["actual_changed_slot_zero_based"] = changed_index
+                    report["result"] = "Getränkename per 0xAA in Slot bestätigt"
                 finally:
                     try:
                         await client.stop_notify(CHAR_UUID)
