@@ -1,5 +1,6 @@
 """Read-only user interface selectors for profile and stored drink recipe."""
 from homeassistant.components.select import SelectEntity
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_MAC, DEFAULT_NAME, DOMAIN
@@ -32,7 +33,9 @@ class DinamicaSelect(CoordinatorEntity, SelectEntity):
     def __init__(self, coordinator, entry, kind):
         super().__init__(coordinator)
         self._kind = kind
-        self._attr_name = "Benutzerprofil auswählen" if kind == "profile" else "Getränk auswählen"
+        self._attr_name = "Benutzerprofil auswählen" if kind == "profile" else "Getränk konfigurieren"
+        if kind == "drink":
+            self._attr_entity_category = EntityCategory.CONFIG
         mac = entry.data[CONF_MAC]
         self._attr_unique_id = f"{mac}_selected_{kind}"
         self._attr_device_info = {
@@ -63,5 +66,8 @@ class DinamicaSelect(CoordinatorEntity, SelectEntity):
             self.coordinator.selected_profile_id = item_id
         else:
             self.coordinator.selected_recipe_id = item_id
+            # Selection switches the complete local draft, never writes BLE.
+            from .number import initialize_draft
+            initialize_draft(self.coordinator)
         # Notify all coordinator-backed sensors without making another BLE request.
         self.coordinator.async_update_listeners()
