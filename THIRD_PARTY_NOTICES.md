@@ -31,3 +31,23 @@ The `0xAB` custom-drink name packet layout, UTF-16BE name format and 20-byte GAT
 The project is distributed under Apache-2.0 (see `LICENSE`). That does **not** remove any original copyright or license obligations for incorporated third-party source. This attribution is a provenance summary, **not a line-by-line code-origin audit**. Contributors should preserve original headers and make source-level attribution explicit when directly copying or modifying another project's protected code.
 
 If you identify omitted credits or notice requirements, please open a GitHub issue with the relevant source and file paths.
+
+## Maintainer verification (2026-11-08)
+
+The reviewed public repository is a Home Assistant integration, not a copy of
+the upstream applications or of the proprietary Android app. Relevant files:
+
+- `monitor.py`, `statistics.py`, `dinamica_protocol/*`: local BLE packet
+  encoders/decoders. Their command fields, status interpretation, CRC and
+  counter mapping were informed by Arbuzov's Apache-2.0 project.
+- `recipe_save_probe.py`: implementation of the observed `0x83` save-operation
+  format. The filtering of non-brewing metadata tags was informed by
+  Barista's MIT-licensed protocol research. Barista's application is not bundled.
+- `recipe_name_write.py`: locally written encoder for the observed `0xAB`
+  format from Coffee Link v4.9.6 interoperability investigation.
+
+This identifies known research sources and implementation files. It does not
+certify independent authorship or constitute a complete line-by-line provenance
+or legal audit of previous revisions. If verbatim/adapted third-party source
+is identified later, its original copyright and applicable license notices
+must be retained alongside that code.
