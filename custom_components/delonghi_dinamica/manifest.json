@@ -1,16 +1,14 @@
 {
-    "domain":  "delonghi_dinamica",
-    "name":  "DeLonghi Dinamica Plus (Development)",
-    "version":  "0.1.4",
-    "documentation":  "https://github.com/Sepp501/delonghi-dinamica-hacs",
-    "issue_tracker":  "https://github.com/Sepp501/delonghi-dinamica-hacs/issues",
-    "config_flow":  true,
-    "dependencies":  [
-                         "bluetooth"
-                     ],
-    "codeowners":  [
-
-                   ],
-    "iot_class":  "local_polling",
-    "integration_type":  "device"
+  "domain": "delonghi_dinamica",
+  "name": "DeLonghi Dinamica Plus (Development)",
+  "version": "0.1.5",
+  "documentation": "https://github.com/Sepp501/delonghi-dinamica-hacs",
+  "issue_tracker": "https://github.com/Sepp501/delonghi-dinamica-hacs/issues",
+  "config_flow": true,
+  "dependencies": [
+    "bluetooth"
+  ],
+  "codeowners": [],
+  "iot_class": "local_polling",
+  "integration_type": "device"
 }
