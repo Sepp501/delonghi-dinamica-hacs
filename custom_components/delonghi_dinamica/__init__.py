@@ -47,6 +47,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        # Retired duplicate name-save test button: keep only one Save control.
+        registry = er.async_get(hass)
+        old_unique_id = f"{entry.data[CONF_MAC]}_test_recipe_name_save"
+        old_id = registry.async_get_entity_id("button", DOMAIN, old_unique_id)
+        if old_id is not None:
+            registry.async_remove(old_id)
     except Exception:
         hass.data[DOMAIN].pop(entry.entry_id, None)
         raise
