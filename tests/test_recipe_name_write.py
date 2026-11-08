@@ -24,10 +24,25 @@ class NameWriteTests(unittest.TestCase):
     def test_exact_packet_layout_and_crc(self):
         p = names.build_name_write("Testkaffee", icon=7)
         self.assertEqual(len(p), 29)
-        self.assertEqual(p[:6], bytes.fromhex("0D 1C AB F0 03 03"))
+        self.assertEqual(p[:6], bytes.fromhex("0D 1C AB F0 04 04"))
         self.assertEqual(p[6:26], "Testkaffee".encode("utf-16-be"))
         self.assertEqual(p[26], 7)
         self.assertEqual(p[27:], binascii.crc_hqx(p[:-2], 0x1D0F).to_bytes(2,"big"))
+
+    def test_chunking_matches_app(self):
+        packet = names.build_name_write("Testkaffee", icon=7)
+        chunks = names.split_name_write_chunks(packet)
+        self.assertEqual([len(chunk) for chunk in chunks], [20, 9])
+        self.assertEqual(b"".join(chunks), packet)
+        self.assertEqual(chunks[0], packet[:20])
+        self.assertEqual(chunks[1], packet[20:])
+
+    def test_chunking_rejects_invalid_packets(self):
+        packet = names.build_name_write("Testkaffee", icon=7)
+        for bad in (b"", packet[:20], packet[:-1] + b"\\x00",
+                    b"\\x00" + packet[1:]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                names.split_name_write_chunks(bad)
 
     def test_short_name_null_padding(self):
         p = names.build_name_write("NEU", icon=2)
