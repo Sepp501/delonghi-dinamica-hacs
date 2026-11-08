@@ -255,7 +255,24 @@ class DinamicaCoordinator(DataUpdateCoordinator):
             "target": "Sepp / Frei 1 (233)",
             "requested_name": new_name, "packet_hex": None,
             "notifications_after_write": [],
+            "diagnostic_events": [], "diagnostic_version": "0.2.10",
         }
+        started = asyncio.get_running_loop().time()
+
+        def trace(stage, **details):
+            """Bounded diagnostic trace, also written to Home Assistant log."""
+            event = {
+                "t_ms": round((asyncio.get_running_loop().time() - started) * 1000),
+                "stage": stage,
+                **details,
+            }
+            if len(report["diagnostic_events"]) < 50:
+                report["diagnostic_events"].append(event)
+            else:
+                report["diagnostic_truncated"] = True
+            _LOGGER.warning("NAME SAVE DIAG %s", event)
+
+        trace("start", target_recipe_id=233, requested_name=new_name)
         self.last_name_save_result = report
         self.async_update_listeners()
         try:
@@ -269,10 +286,33 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     client_class=BleakClient, device=device,
                     name="DeLonghi Dinamica Plus", max_attempts=3,
                 )
+                try:
+                    report["ble_mtu_reported"] = client.mtu_size
+                except Exception as exc:
+                    report["ble_mtu_error"] = str(exc)
+                try:
+                    char = client.services.get_characteristic(CHAR_UUID)
+                    if char is not None:
+                        report["ble_char_properties"] = list(char.properties)
+                        report["ble_max_write_without_response"] = (
+                            char.max_write_without_response_size
+                        )
+                except Exception as exc:
+                    report["ble_char_error"] = str(exc)
+                trace(
+                    "connected",
+                    mtu_reported=report.get("ble_mtu_reported"),
+                    max_write_without_response=report.get(
+                        "ble_max_write_without_response"
+                    ),
+                    properties=report.get("ble_char_properties"),
+                    note="Backend-reported MTU may not be negotiated ATT MTU",
+                )
                 frames = asyncio.Queue()
                 buf = bytearray()
 
                 def notification(_sender, data):
+                    trace("rx_chunk", raw_hex=bytes(data).hex(" ").upper())
                     buf.extend(data)
                     while buf:
                         if buf[0] != 0xD0:
@@ -286,14 +326,22 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                             continue
                         if len(buf) < packet_size:
                             return
-                        frames.put_nowait(bytes(buf[:packet_size]))
+                        packet = bytes(buf[:packet_size])
+                        trace(
+                            "rx_frame", raw_hex=packet.hex(" ").upper(),
+                            opcode=f"0x{packet[2]:02X}",
+                            crc_ok=valid(packet, packet[2]),
+                        )
+                        frames.put_nowait(packet)
                         del buf[:packet_size]
 
                 async def read_names():
                     while not frames.empty():
                         frames.get_nowait()
+                    command = name_request()
+                    trace("tx_name_read", raw_hex=command.hex(" ").upper())
                     await client.write_gatt_char(
-                        CHAR_UUID, name_request(), response=True,
+                        CHAR_UUID, command, response=True,
                     )
                     deadline = asyncio.get_running_loop().time() + 10
                     while (time_left := deadline - asyncio.get_running_loop().time()) > 0:
@@ -302,16 +350,21 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                         except asyncio.TimeoutError:
                             break
                         if valid(frame, 0xAA):
-                            return parse_names(frame)
+                            names = parse_names(frame)
+                            trace("names_read", names=names)
+                            return names
                     raise TimeoutError("Keine gültige 0xAA-Namensantwort")
 
                 try:
                     await client.start_notify(CHAR_UUID, notification)
+                    trace("notifications_enabled")
                     # Fresh monitor status gates the unverified name write.
                     while not frames.empty():
                         frames.get_nowait()
+                    command = build_status_request()
+                    trace("tx_status", raw_hex=command.hex(" ").upper())
                     await client.write_gatt_char(
-                        CHAR_UUID, build_status_request(), response=True,
+                        CHAR_UUID, command, response=True,
                     )
                     status = None
                     deadline = asyncio.get_running_loop().time() + 5
@@ -326,11 +379,14 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                             except ValueError:
                                 continue
                             break
+                    trace("status_result", status=status)
                     if status is None or status["state_code"] != 7 or status["dispensing"]:
                         raise ValueError("Maschine muss eingeschaltet und bereit sein")
 
+                    command = make_profile_select()
+                    trace("tx_profile", raw_hex=command.hex(" ").upper())
                     await client.write_gatt_char(
-                        CHAR_UUID, make_profile_select(), response=True,
+                        CHAR_UUID, command, response=True,
                     )
                     await asyncio.sleep(0.6)
                     original_names = await read_names()
@@ -359,13 +415,35 @@ class DinamicaCoordinator(DataUpdateCoordinator):
 
                     payload = build_name_write(new_name, write_target["icon"])
                     report["packet_hex"] = payload.hex(" ").upper()
+                    trace(
+                        "name_write_prepared",
+                        raw_hex=report["packet_hex"],
+                        length=len(payload),
+                        crc_hex=payload[-2:].hex(" ").upper(),
+                        address_bytes=payload[4:6].hex(" ").upper(),
+                    )
                     _LOGGER.warning(
                         "EXPERIMENTAL 0xAB NAME WRITE Sepp/Frei1: %s",
                         report["packet_hex"],
                     )
                     while not frames.empty():
                         frames.get_nowait()
-                    await client.write_gatt_char(CHAR_UUID, payload, response=True)
+                    write_started = asyncio.get_running_loop().time()
+                    try:
+                        await client.write_gatt_char(CHAR_UUID, payload, response=True)
+                    except Exception as exc:
+                        trace(
+                            "gatt_write_error",
+                            error_type=type(exc).__name__, error=str(exc),
+                        )
+                        raise
+                    trace(
+                        "gatt_write_completed",
+                        duration_ms=round(
+                            (asyncio.get_running_loop().time() - write_started) * 1000
+                        ),
+                        note="GATT success is not proof that name was saved",
+                    )
                     try:
                         while len(report["notifications_after_write"]) < 12:
                             frame = await asyncio.wait_for(frames.get(), timeout=0.35)
@@ -386,6 +464,11 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                         ) if old != current
                     ]
                     report["changed_name_slots_zero_based"] = changed_slots
+                    trace(
+                        "name_compare",
+                        changed_slots_zero_based=changed_slots,
+                        before=original_names, after=updated_names,
+                    )
                     # The experiment is considered successful ONLY when a
                     # single name slot changes and its icon stays unchanged.
                     if len(changed_slots) != 1:
@@ -405,6 +488,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     report["verified"] = True
                     report["actual_changed_slot_zero_based"] = changed_index
                     report["result"] = "Getränkename per 0xAA in Slot bestätigt"
+                    trace("verified", slot=changed_index)
                 finally:
                     try:
                         await client.stop_notify(CHAR_UUID)
@@ -415,9 +499,11 @@ class DinamicaCoordinator(DataUpdateCoordinator):
         except Exception as exc:
             report["result"] = "Namens-Test nicht bestätigt"
             report["detail"] = str(exc)
+            trace("failed", error_type=type(exc).__name__, error=str(exc))
             _LOGGER.error("Experimental 0xAB name save failed: %s", exc)
             raise
         finally:
+            trace("finished", verified=report.get("verified", False))
             self.async_update_listeners()
 
     async def _async_poll_data(self):
