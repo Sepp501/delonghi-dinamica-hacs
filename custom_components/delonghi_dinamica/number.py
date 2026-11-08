@@ -6,32 +6,51 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import CONF_MAC, DEFAULT_NAME, DOMAIN
 from .recipe_edit_draft import (
     COFFEE_MIN_ML, COFFEE_MAX_ML, TEST_PROFILE_ID, TEST_RECIPE_ID,
-    plan_test_recipe,
+    plan_test_recipe, _valid_name,
 )
 
 
 def get_original(coordinator):
+    """Recipe data for the selected drink in profile 1 (shared names)."""
+    recipe_id = coordinator.selected_recipe_id
     return ((coordinator.data or {}).get("recipes", {})
-            .get(TEST_PROFILE_ID, {}).get(TEST_RECIPE_ID))
+            .get(TEST_PROFILE_ID, {}).get(recipe_id))
 
 
 def initialize_draft(coordinator):
-    if not hasattr(coordinator, "recipe_draft"):
+    """Load selected slot from cached readback; switching discards old draft."""
+    recipe_id = coordinator.selected_recipe_id
+    if (getattr(coordinator, "recipe_draft_recipe_id", None) != recipe_id
+            or not hasattr(coordinator, "recipe_draft")):
         original = get_original(coordinator)
+        names = (coordinator.data or {}).get("names", [])
+        index = recipe_id - 230
+        raw_name = (names[index].get("name", "")
+                    if 0 <= index < len(names) and isinstance(names[index], dict)
+                    else "")
+        display_name = raw_name or f"Frei {recipe_id - 232}"
         coordinator.recipe_draft = {
-            "coffee": original.coffee_ml if original and original.coffee_ml else 150,
+            "coffee": original.coffee_ml if original and original.coffee_ml is not None else 150,
             "milk": original.milk_seconds if original and original.milk_seconds is not None else 0,
-            "strength": original.strength if original and original.strength else 3,
-            "name": "Frei 1",
+            "strength": original.strength if original and original.strength is not None else 3,
+            "name": display_name,
+            "name_initial": display_name,
+            "raw_name_initial": raw_name,
             "pending": False,
         }
+        coordinator.recipe_draft_recipe_id = recipe_id
     return coordinator.recipe_draft
 
 
 def validate_draft(coordinator, draft):
+    """Validate local entry; only recipe 233 has a tested value-write path."""
     original = get_original(coordinator)
     if original is None:
-        raise ValueError("Rezept Sepp / Frei 1 derzeit nicht auslesbar")
+        raise ValueError("Ausgewähltes Rezept derzeit nicht auslesbar")
+    _valid_name(str(draft["name"]))
+    if coordinator.selected_recipe_id != TEST_RECIPE_ID:
+        # Name editing for all six; quantitative writes remain guarded.
+        return None
     return plan_test_recipe(
         original, int(draft["coffee"]), float(draft["milk"]),
         int(draft["strength"]), str(draft["name"]),
@@ -43,11 +62,11 @@ async def async_setup_entry(hass, entry, async_add_entities):
     initialize_draft(coordinator)
     async_add_entities([
         DinamicaDraftNumber(coordinator, entry, "coffee",
-                            "Frei 1 – Kaffeemenge (nur Entwurf)", COFFEE_MIN_ML, COFFEE_MAX_ML, 5, "mL"),
+                            "Kaffeemenge (Entwurf)", COFFEE_MIN_ML, COFFEE_MAX_ML, 5, "mL"),
         DinamicaDraftNumber(coordinator, entry, "milk",
-                            "Frei 1 – Milchdauer (nur Entwurf)", 0, 90, 0.1, "s"),
+                            "Milchdauer (Entwurf)", 0, 90, 0.1, "s"),
         DinamicaDraftNumber(coordinator, entry, "strength",
-                            "Frei 1 – Stärke (nur Entwurf)", 1, 5, 1, None),
+                            "Stärke (Entwurf)", 1, 5, 1, None),
     ])
 
 
@@ -79,9 +98,13 @@ class DinamicaDraftNumber(CoordinatorEntity, NumberEntity):
 
     @property
     def available(self):
-        return super().available and get_original(self.coordinator) is not None
+        return (super().available
+                and self.coordinator.selected_recipe_id == TEST_RECIPE_ID
+                and get_original(self.coordinator) is not None)
 
     async def async_set_native_value(self, value):
+        if self.coordinator.selected_recipe_id != TEST_RECIPE_ID:
+            raise ValueError("Rezeptwerte nur für Rezept 233 freigegeben")
         draft = initialize_draft(self.coordinator)
         if not self._attr_native_min_value <= value <= self._attr_native_max_value:
             raise ValueError("Value out of range")
@@ -104,6 +127,9 @@ class DinamicaDraftNumber(CoordinatorEntity, NumberEntity):
             candidate = validate_draft(self.coordinator, draft)
         except ValueError as exc:
             return {"saved_to_machine": False, "warning": str(exc)}
+        if candidate is None:
+            return {"saved_to_machine": False,
+                    "warning": "Rezeptwerte für diesen Slot noch nicht zum Speichern freigegeben; nur Name"}
         return {
             "profile_id": TEST_PROFILE_ID, "recipe_id": TEST_RECIPE_ID,
             "original_coffee_ml": candidate.coffee_ml_before,
@@ -121,5 +147,5 @@ class DinamicaDraftNumber(CoordinatorEntity, NumberEntity):
             ),
             "save_requested": draft.get("pending", False),
             "note": "Änderungen erst nach manuellem Speichern und A6-Rücklesung aktiv. "
-                    "Der Name wird noch nicht zur Maschine übertragen.",
+                    "Der Name kann für alle sechs Slots gespeichert werden.",
         }
