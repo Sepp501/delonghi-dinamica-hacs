@@ -10,8 +10,6 @@ WARNING_SENSORS = (
     ("water_empty", "Wassertank leer", 0),
     ("grounds_full", "Kaffeesatzbehälter voll", 1),
     ("descale_needed", "Entkalkung erforderlich", 2),
-    ("filter_replace", "Filterwechsel erforderlich", 3),
-    ("beans_empty", "Kaffeebohnen leer", 5),
 )
 
 
