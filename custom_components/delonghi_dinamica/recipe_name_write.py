@@ -21,14 +21,13 @@ def build_name_write(name: str, icon: int, profile_id: int = 1,
     name = _valid_name(name)
     if not isinstance(icon, int) or isinstance(icon, bool) or not 0 <= icon <= 255:
         raise ValueError("Ungültige Icon-ID")
-    # EXPERIMENT ONLY: 04 04 was transmitted and had no visible effect.
-    # Try 03 03 once, with explicit user permission to affect another custom slot.
-    slot = recipe_id - 230
+    # APK EcamServiceV2.L() uses recipe_id - 229 for BOTH address bytes.
+    slot = recipe_id - 229
     utf16 = name.encode("utf-16-be")
     if len(utf16) > 20:
         raise ValueError("Name überschreitet zehn UTF-16-Codeeinheiten")
     padded = utf16.ljust(20, b"\x00")
-    # Experimental 29 bytes: 0D 1C AB F0 03 03 [name:20] [icon:1] [CRC:2].
+    # APK-derived 29 bytes: 0D 1C AB F0 04 04 [name:20] [icon:1] [CRC:2].
     body = bytes((0xAB, 0xF0, slot, slot)) + padded + bytes((icon,))
     prefix = bytes((0x0D, len(body) + 3)) + body
     packet = prefix + binascii.crc_hqx(prefix, 0x1D0F).to_bytes(2, "big")
@@ -48,3 +47,19 @@ def get_test_name(names: list[dict]) -> dict:
     if not isinstance(item.get("icon"), int):
         raise ValueError("Icon des Testrezepts nicht lesbar")
     return item
+
+
+def split_name_write_chunks(packet: bytes) -> tuple[bytes, ...]:
+    """Split one 0xAB name packet into sequential 20-byte GATT writes.
+
+    The De'Longhi app writes each fragment with response before sending
+    the next fragment; this is application-layer fragmentation, NOT
+    ATT Prepare Write / Execute Write.
+    """
+    if not isinstance(packet, bytes) or len(packet) != 29:
+        raise ValueError("Erwartet genau ein 29-Byte-0xAB-Namenspaket")
+    if packet[:4] != bytes.fromhex("0D 1C AB F0"):
+        raise ValueError("Kein gültiges 0xAB-Namenspaket")
+    if packet[-2:] != binascii.crc_hqx(packet[:-2], 0x1D0F).to_bytes(2, "big"):
+        raise ValueError("Ungültige Prüfsumme im Namenspaket")
+    return tuple(packet[i:i + 20] for i in range(0, len(packet), 20))
