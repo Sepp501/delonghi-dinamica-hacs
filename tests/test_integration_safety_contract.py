@@ -56,8 +56,8 @@ class IntegrationSafetyContract(unittest.TestCase):
         )
         self.assertEqual(ast.unparse(setup).count("DinamicaRecipeSave("), 1)
         self.assertNotIn("DinamicaNameSaveProbe", ast.unparse(tree))
-        self.assertIn('"_test_recipe_save"', ast.unparse(save))
-        self.assertIn('"_power_on"', ast.unparse(cls(tree, "DinamicaPowerOn")))
+        self.assertIn("_test_recipe_save", ast.unparse(save))
+        self.assertIn("_power_on", ast.unparse(cls(tree, "DinamicaPowerOn")))
 
     def test_public_entity_identifiers_are_stable(self):
         number = ast.unparse(parse("number.py"))
