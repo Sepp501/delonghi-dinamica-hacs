@@ -1,94 +1,119 @@
-"""Offline-only test coffee amount. Does not send Bluetooth writes."""
+"""Three local test recipe fields; no unverified BLE write commands."""
 from homeassistant.components.number import NumberEntity
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_MAC, DEFAULT_NAME, DOMAIN
 from .recipe_edit_draft import (
-    COFFEE_MAX_ML, COFFEE_MIN_ML, TEST_PROFILE_ID, TEST_RECIPE_ID,
-    plan_test_coffee,
+    COFFEE_MIN_ML, COFFEE_MAX_ML, TEST_PROFILE_ID, TEST_RECIPE_ID,
+    plan_test_recipe,
 )
+
+
+def get_original(coordinator):
+    return ((coordinator.data or {}).get("recipes", {})
+            .get(TEST_PROFILE_ID, {}).get(TEST_RECIPE_ID))
+
+
+def initialize_draft(coordinator):
+    if not hasattr(coordinator, "recipe_draft"):
+        original = get_original(coordinator)
+        coordinator.recipe_draft = {
+            "coffee": original.coffee_ml if original and original.coffee_ml else 150,
+            "milk": original.milk_seconds if original and original.milk_seconds is not None else 0,
+            "strength": original.strength if original and original.strength else 3,
+            "name": "Frei 1",
+            "pending": False,
+        }
+    return coordinator.recipe_draft
+
+
+def validate_draft(coordinator, draft):
+    original = get_original(coordinator)
+    if original is None:
+        raise ValueError("Rezept Sepp / Frei 1 derzeit nicht auslesbar")
+    return plan_test_recipe(
+        original, int(draft["coffee"]), float(draft["milk"]),
+        int(draft["strength"]), str(draft["name"]),
+    )
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([DinamicaTestCoffeeAmount(coordinator, entry)])
+    initialize_draft(coordinator)
+    async_add_entities([
+        DinamicaDraftNumber(coordinator, entry, "coffee",
+                            "Frei 1 – Kaffeemenge (nur Entwurf)", COFFEE_MIN_ML, COFFEE_MAX_ML, 5, "mL"),
+        DinamicaDraftNumber(coordinator, entry, "milk",
+                            "Frei 1 – Milchdauer (nur Entwurf)", 0, 90, 0.1, "s"),
+        DinamicaDraftNumber(coordinator, entry, "strength",
+                            "Frei 1 – Stärke (nur Entwurf)", 1, 5, 1, None),
+    ])
 
 
-class DinamicaTestCoffeeAmount(CoordinatorEntity, NumberEntity):
-    """Edit a local proposed coffee quantity, not the physical machine."""
-
+class DinamicaDraftNumber(CoordinatorEntity, NumberEntity):
     _attr_has_entity_name = True
-    _attr_name = "Frei 1 – Kaffeemenge (nur Entwurf)"
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_native_min_value = COFFEE_MIN_ML
-    _attr_native_max_value = COFFEE_MAX_ML
-    _attr_native_step = 5
-    _attr_native_unit_of_measurement = "mL"
     _attr_icon = "mdi:coffee"
 
-    def __init__(self, coordinator, entry):
+    def __init__(self, coordinator, entry, kind, label, minimum, maximum, step, unit):
         super().__init__(coordinator)
-        self._attr_native_value = 150
+        self._kind = kind
+        self._attr_name = label
+        self._attr_native_min_value = minimum
+        self._attr_native_max_value = maximum
+        self._attr_native_step = step
+        self._attr_native_unit_of_measurement = unit
         mac = entry.data[CONF_MAC]
-        self._attr_unique_id = f"{mac}_test_coffee_draft_amount"
+        # Preserve the previous entity ID and history for coffee quantity.
+        suffix = "test_coffee_draft_amount" if kind == "coffee" else f"test_coffee_draft_{kind}"
+        self._attr_unique_id = f"{mac}_{suffix}"
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, mac)},
-            "name": entry.title or DEFAULT_NAME,
-            "manufacturer": "De'Longhi",
-            "model": "Dinamica Plus",
+            "identifiers": {(DOMAIN, mac)}, "name": entry.title or DEFAULT_NAME,
+            "manufacturer": "De'Longhi", "model": "Dinamica Plus",
         }
 
     @property
+    def native_value(self):
+        return initialize_draft(self.coordinator)[self._kind]
+
+    @property
     def available(self):
-        if not super().available:
-            return False
-        original = (
-            (self.coordinator.data or {}).get("recipes", {})
-            .get(TEST_PROFILE_ID, {}).get(TEST_RECIPE_ID)
-        )
-        if original is None:
-            return False
-        try:
-            plan_test_coffee(original, int(self._attr_native_value))
-        except ValueError:
-            return False
-        return True
+        return super().available and get_original(self.coordinator) is not None
 
     async def async_set_native_value(self, value):
-        original = (
-            (self.coordinator.data or {}).get("recipes", {})
-            .get(TEST_PROFILE_ID, {}).get(TEST_RECIPE_ID)
-        )
-        if original is None:
-            raise ValueError("Test recipe Sepp/Frei 1 not available")
-        # Validate. No client connection and no BLE commands are invoked.
-        if not float(value).is_integer():
-            raise ValueError("Coffee amount must be in full milliliters")
-        plan_test_coffee(original, int(value))
-        self._attr_native_value = int(value)
-        self.async_write_ha_state()
+        draft = initialize_draft(self.coordinator)
+        if not self._attr_native_min_value <= value <= self._attr_native_max_value:
+            raise ValueError("Value out of range")
+        if self._kind in ("coffee", "strength") and not float(value).is_integer():
+            raise ValueError("Whole numbers required")
+        value = round(float(value), 1) if self._kind == "milk" else int(value)
+        changed = {**draft, self._kind: value}
+        validate_draft(self.coordinator, changed)
+        draft.update(changed)
+        draft["pending"] = False
+        self.coordinator.async_update_listeners()
 
     @property
     def extra_state_attributes(self):
-        original = (
-            (self.coordinator.data or {}).get("recipes", {})
-            .get(TEST_PROFILE_ID, {}).get(TEST_RECIPE_ID)
-        )
+        draft = initialize_draft(self.coordinator)
+        original = get_original(self.coordinator)
         if original is None:
-            return {"warning": "Originalrezept nicht auslesbar"}
+            return {"saved_to_machine": False, "warning": "Original nicht lesbar"}
         try:
-            planned = plan_test_coffee(original, int(self._attr_native_value))
+            candidate = validate_draft(self.coordinator, draft)
         except ValueError as exc:
-            return {"warning": str(exc)}
+            return {"saved_to_machine": False, "warning": str(exc)}
         return {
-            "profile_id": TEST_PROFILE_ID,
-            "recipe_id": TEST_RECIPE_ID,
-            "original_coffee_ml": planned.coffee_ml_before,
-            "proposed_coffee_ml": planned.coffee_ml_after,
-            "original_parameters": str(planned.original_parameters),
-            "proposed_parameters": str(planned.proposed_parameters),
-            "removed_milk_parameters": str(planned.removed_milk_parameters),
+            "profile_id": TEST_PROFILE_ID, "recipe_id": TEST_RECIPE_ID,
+            "original_coffee_ml": candidate.coffee_ml_before,
+            "proposed_coffee_ml": candidate.coffee_ml_after,
+            "proposed_milk_seconds": candidate.milk_seconds_after,
+            "proposed_strength": candidate.strength_after,
+            "proposed_name": candidate.name_after,
+            "original_parameters": str(candidate.original_parameters),
+            "proposed_parameters": str(candidate.proposed_parameters),
             "saved_to_machine": False,
-            "note": "Nur lokaler Entwurf. Bluetooth-Schreibprotokoll noch nicht verifiziert.",
+            "save_requested": draft.get("pending", False),
+            "note": "Entwurf – Schreibbefehle für dieses Modell noch nicht verifiziert",
         }
