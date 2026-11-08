@@ -14,7 +14,7 @@ _MAC_RE = re.compile(r"(?:[0-9A-F]{2}:){5}[0-9A-F]{2}")
 class DinamicaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Configure a machine by Bluetooth MAC address."""
 
-    VERSION = 1
+    VERSION = 2
 
     async def async_step_user(self, user_input=None):
         """Show manual setup; no BLE connection during form validation."""

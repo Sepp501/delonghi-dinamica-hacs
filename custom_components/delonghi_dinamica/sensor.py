@@ -80,6 +80,9 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, entry, kind, label, recipe_key=None):
         super().__init__(coordinator)
         self._kind = kind
+        # Only the 3 selected-value sensors appear on the device page.
+        # Historical per-recipe sensors remain active for automations/history.
+        self._attr_entity_registry_visible_default = kind.startswith("selected_")
         self._recipe_key = recipe_key
         self._attr_name = label
         mac = entry.data[CONF_MAC]
