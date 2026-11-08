@@ -8,7 +8,7 @@ from .const import CONF_MAC, DEFAULT_NAME, DOMAIN
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([DinamicaPowerOn(coordinator, entry), DinamicaRecipeSaveUnavailable(coordinator, entry), DinamicaNameSaveProbe(coordinator, entry), DinamicaBLECacheMTUDiagnostic(coordinator, entry)])
+    async_add_entities([DinamicaPowerOn(coordinator, entry), DinamicaRecipeSaveUnavailable(coordinator, entry), DinamicaBLECacheMTUDiagnostic(coordinator, entry)])
 
 
 class DinamicaPowerOn(CoordinatorEntity, ButtonEntity):
@@ -31,10 +31,12 @@ class DinamicaPowerOn(CoordinatorEntity, ButtonEntity):
 
 
 class DinamicaRecipeSaveUnavailable(CoordinatorEntity, ButtonEntity):
-    """Manual test for coffee, milk-duration, and strength Save. Experimental."""
+    """One manual Save for selected slot; validated changes only."""
 
     _attr_has_entity_name = True
-    _attr_name = "Frei 1 – Rezeptwerte speichern (Test)"
+    _attr_name = "Rezept speichern"
+    from homeassistant.helpers.entity import EntityCategory
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:content-save-alert"
 
     def __init__(self, coordinator, entry):
@@ -54,20 +56,22 @@ class DinamicaRecipeSaveUnavailable(CoordinatorEntity, ButtonEntity):
             super().available
             and monitor.get("state_code") == 7
             and not monitor.get("dispensing", False)
-            and (self.coordinator.data or {}).get("recipes", {}).get(1, {}).get(233) is not None
+            and (self.coordinator.data or {}).get("recipes", {}).get(1, {}).get(
+                self.coordinator.selected_recipe_id) is not None
+            and len((self.coordinator.data or {}).get("names", [])) == 6
         )
 
     @property
     def extra_state_attributes(self):
         return dict(getattr(self.coordinator, "last_save_result", {}) or {
             "status": "Noch kein Test durchgeführt",
-            "scope": "Nur Sepp / Frei 1; Kaffee, Milchdauer und Stärke",
-            "warning": "Rezeptwert-Speicherung wird per A6 kontrolliert; Namensänderung nicht unterstützt",
+            "scope": "Namen: sechs Slots; Rezeptwerte: nur Rezept 233",
+            "warning": "Änderungen erst nach manueller Bestätigung; Rezeptwerte weiterhin nur für 233",
         })
 
     async def async_press(self):
         try:
-            await self.coordinator.async_experimental_save_test_coffee()
+            await self.coordinator.async_save_selected_recipe()
         except Exception as exc:
             raise HomeAssistantError(f"Speichertest gescheitert: {exc}") from exc
 
