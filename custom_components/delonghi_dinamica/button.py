@@ -31,10 +31,10 @@ class DinamicaPowerOn(CoordinatorEntity, ButtonEntity):
 
 
 class DinamicaRecipeSaveUnavailable(CoordinatorEntity, ButtonEntity):
-    """Manual test for the coffee-quantity-only Save mode. Experimental."""
+    """Manual test for coffee, milk-duration, and strength Save. Experimental."""
 
     _attr_has_entity_name = True
-    _attr_name = "Frei 1 – Kaffeemenge testen (experimentell)"
+    _attr_name = "Frei 1 – Rezeptwerte speichern (Test)"
     _attr_icon = "mdi:content-save-alert"
 
     def __init__(self, coordinator, entry):
@@ -61,8 +61,8 @@ class DinamicaRecipeSaveUnavailable(CoordinatorEntity, ButtonEntity):
     def extra_state_attributes(self):
         return dict(getattr(self.coordinator, "last_save_result", {}) or {
             "status": "Noch kein Test durchgeführt",
-            "scope": "Nur Sepp / Frei 1; Kaffeemenge",
-            "warning": "Experimenteller Speicherbefehl; eine ungewollte Zubereitung ist nicht ausgeschlossen",
+            "scope": "Nur Sepp / Frei 1; Kaffee, Milchdauer und Stärke",
+            "warning": "Rezeptwert-Speicherung wird per A6 kontrolliert; Namensänderung nicht unterstützt",
         })
 
     async def async_press(self):

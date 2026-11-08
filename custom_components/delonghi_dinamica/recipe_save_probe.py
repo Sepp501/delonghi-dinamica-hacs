@@ -1,8 +1,8 @@
 """Experimental single-slot save probe, never used by the regular poller.
 
-Only for Sepp / Frei 1. A save-mode enum exists in independent ECAM protocol
-projects, but is not yet verified for ECAM370.95.T. Never use PREPARE or
-PREPARE_AND_SAVE here.
+Only for Sepp / Frei 1. 0x83 + profile 1 + Save was verified on
+ECAM370.95.T for the coffee amount. Milk and strength are experiments.
+Never use PREPARE or PREPARE_AND_SAVE here.
 """
 import binascii
 
@@ -15,7 +15,7 @@ BREW_TAG_WIDTHS = {0x01: 2, 0x09: 2, 0x02: 1, 0x0C: 1}
 MODE_SAVE = 0x01
 # Confirmed from the Coffee Link APK-derived builder: final byte packs
 # profile_id in bits 2..7 and operation in bits 0..1.
-# This is a *candidate* for ECAM370.95.T, not a verified successful save.
+# Confirmed for the coffee amount on ECAM370.95.T.
 ACTION_START = 0x01
 
 
@@ -27,21 +27,24 @@ def profile_operation(profile_id: int, operation: int) -> int:
 
 
 def make_save_probe(original, draft: dict) -> bytes:
-    """Make one candidate saving ONLY coffee quantity, requiring no other changes."""
+    """Build one Save command for amount, milk and strength, never the name."""
     proposed = plan_test_recipe(
         original, int(draft["coffee"]), float(draft["milk"]),
         int(draft["strength"]), str(draft["name"]),
     )
     if original.profile_id != TEST_PROFILE_ID or original.recipe_id != TEST_RECIPE_ID:
         raise ValueError("Test limited to Sepp / Frei 1")
-    if proposed.milk_seconds_after != original.milk_seconds:
-        raise ValueError("Milk must remain unchanged for the first save test")
-    if proposed.strength_after != original.strength:
-        raise ValueError("Strength must remain unchanged for the first save test")
     if proposed.name_after != "Frei 1":
-        raise ValueError("Name must remain Frei 1 for the first save test")
-    if proposed.coffee_ml_after == original.coffee_ml:
-        raise ValueError("Choose a different coffee quantity for the test")
+        raise ValueError(
+            "Name kann noch nicht gespeichert werden: bitte 'Frei 1' eintragen. "
+            "Befehl 0xAB noch nicht verifiziert."
+        )
+    if (
+        proposed.coffee_ml_after == original.coffee_ml
+        and proposed.milk_seconds_after == (original.milk_seconds or 0.0)
+        and proposed.strength_after == original.strength
+    ):
+        raise ValueError("Keine geänderten Rezeptwerte zum Speichern")
 
     # Keep all brewing tags as received, including milk. Strip only metadata
     # tags (0x19, 0x1B, 0x1C), which the reference Barista implementation also
