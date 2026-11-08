@@ -77,14 +77,17 @@ class SaveProbeTests(unittest.TestCase):
         p = save.make_save_probe(r, options)
         self.assertEqual(p[6:-3], bytes.fromhex("01 00 A0 09 00 A0 02 05 0C 00"))
 
-    def test_name_change_or_noop_rejected(self):
-        cases = [
-            dict(coffee=100, milk=16, strength=3, name="Testkaffee"),
-            dict(coffee=80, milk=16, strength=3, name="Frei 1"),
-        ]
-        for options in cases:
-            with self.subTest(options=options), self.assertRaises(ValueError):
-                save.make_save_probe(recipe(), options)
+    def test_name_is_handled_separately_from_recipe_values(self):
+        # 0x83 is only for quantities; the name goes via the verified 0xAB.
+        p = save.make_save_probe(
+            recipe(), dict(coffee=100, milk=16, strength=3, name="Testkaffee"),
+        )
+        self.assertEqual(p[2:6], bytes((0x83, 0xF0, 233, 0x01)))
+        # No change of quantitative recipe values still must be rejected.
+        with self.assertRaises(ValueError):
+            save.make_save_probe(
+                recipe(), dict(coffee=80, milk=16, strength=3, name="Frei 1"),
+            )
 
     def test_other_slot_rejected(self):
         r = recipe()
