@@ -9,7 +9,7 @@ The integration was developed and tested on the ECAM 370.95.T with Home Assistan
 
 ![Integration icon](custom_components/delonghi_dinamica/brand/icon.png)
 
-## Current features (v0.2.22)
+## Current features (v0.2.24)
 
 - Display **machine status** (including off, heating, ready, brewing, rinsing) and whether the machine is switched on.
 - Manually **switch the machine on** from Home Assistant. Switching off and starting a beverage are **not supported**.
