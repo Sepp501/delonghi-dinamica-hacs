@@ -21,16 +21,24 @@ def display_profiles(raw_profiles):
 
 def display_drink_name(names, recipe_id):
     """Get a confirmed drink name from the current 0xAA name response."""
-    if recipe_id not in CONFIRMED_RECIPE_IDS:
+    if recipe_id not in range(230, 236):
         return None
     index = recipe_id - 230
     if index >= len(names):
-        return None
+        return f"Frei {recipe_id - 232}" if recipe_id > 232 else None
     entry = names[index]
     if not isinstance(entry, dict):
         return None
     name = entry.get("name")
-    return name.strip() if isinstance(name, str) and name.strip() else None
+    if not isinstance(name, str):
+        return None
+    name = name.strip()
+    if recipe_id > 232:
+        # These slots have not been mapped against the app. Only display
+        # generic CUSTOM placeholders as free; retain future custom names.
+        if not name or name.upper() == f"CUSTOM {recipe_id - 229}":
+            return f"Frei {recipe_id - 232}"
+    return name or None
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -57,6 +65,12 @@ async def async_setup_entry(hass, entry, async_add_entities):
                         (profile_id, recipe_id),
                     )
                 )
+    for kind, label in (
+        ("selected_coffee", "Ausgewähltes Getränk Kaffee"),
+        ("selected_milk", "Ausgewähltes Getränk Milchdauer"),
+        ("selected_strength", "Ausgewähltes Getränk Stärke"),
+    ):
+        entities.append(DinamicaSensor(coordinator, entry, kind, label))
     async_add_entities(entities)
 
 
@@ -87,11 +101,15 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
             self._attr_native_unit_of_measurement = "mL"
         elif kind == "milk":
             self._attr_native_unit_of_measurement = "s"
+        elif kind == "selected_coffee":
+            self._attr_native_unit_of_measurement = "mL"
+        elif kind == "selected_milk":
+            self._attr_native_unit_of_measurement = "s"
 
     @property
     def name(self):
         """Present live profile/recipe labels without changing entity IDs."""
-        if self._kind in ("profiles", "names"):
+        if self._kind in ("profiles", "names") or self._kind.startswith("selected_"):
             return self._attr_name
         data = self.coordinator.data or {}
         profile_id, recipe_id = self._recipe_key
@@ -111,9 +129,18 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
             return "profiles" in data
         if self._kind == "names":
             return "names" in data
-        profile_id, recipe_id = self._recipe_key
+        if self._kind.startswith("selected_"):
+            profile_id = self.coordinator.selected_profile_id
+            recipe_id = self.coordinator.selected_recipe_id
+            field = {
+                "selected_coffee": "coffee_ml",
+                "selected_milk": "milk_seconds",
+                "selected_strength": "strength",
+            }[self._kind]
+        else:
+            profile_id, recipe_id = self._recipe_key
+            field = {"recipe": "coffee_ml", "milk": "milk_seconds", "strength": "strength"}[self._kind]
         recipe = data.get("recipes", {}).get(profile_id, {}).get(recipe_id)
-        field = {"recipe": "coffee_ml", "milk": "milk_seconds", "strength": "strength"}[self._kind]
         return recipe is not None and getattr(recipe, field) is not None
 
     @property
@@ -123,12 +150,19 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
             return len(data.get("profiles", {}))
         if self._kind == "names":
             return len(data.get("names", []))
-        profile_id, recipe_id = self._recipe_key
+        if self._kind.startswith("selected_"):
+            profile_id = self.coordinator.selected_profile_id
+            recipe_id = self.coordinator.selected_recipe_id
+            field = {
+                "selected_coffee": "coffee_ml",
+                "selected_milk": "milk_seconds",
+                "selected_strength": "strength",
+            }[self._kind]
+        else:
+            profile_id, recipe_id = self._recipe_key
+            field = {"recipe": "coffee_ml", "milk": "milk_seconds", "strength": "strength"}[self._kind]
         recipe = data.get("recipes", {}).get(profile_id, {}).get(recipe_id)
-        if recipe is None:
-            return None
-        field = {"recipe": "coffee_ml", "milk": "milk_seconds", "strength": "strength"}[self._kind]
-        return getattr(recipe, field)
+        return getattr(recipe, field) if recipe else None
 
     @property
     def extra_state_attributes(self):
@@ -141,7 +175,11 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
                 "profile_mapping_confirmed": False,
                 "confirmed_recipe_ids": sorted(CONFIRMED_RECIPE_IDS),
             }
-        profile_id, recipe_id = self._recipe_key
+        if self._kind.startswith("selected_"):
+            profile_id = self.coordinator.selected_profile_id
+            recipe_id = self.coordinator.selected_recipe_id
+        else:
+            profile_id, recipe_id = self._recipe_key
         recipe = data.get("recipes", {}).get(profile_id, {}).get(recipe_id)
         return {
             "profile_id": profile_id,

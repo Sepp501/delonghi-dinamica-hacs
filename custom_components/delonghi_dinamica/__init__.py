@@ -6,7 +6,7 @@ from homeassistant.core import HomeAssistant
 from .const import CONF_MAC, DOMAIN
 from .coordinator import DinamicaCoordinator
 
-PLATFORMS = ["sensor"]
+PLATFORMS = ["sensor", "select"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

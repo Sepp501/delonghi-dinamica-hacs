@@ -28,6 +28,9 @@ class DinamicaCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=SCAN_INTERVAL),
         )
         self.mac = mac
+        # UI-only selection; never sent to the coffee machine.
+        self.selected_profile_id = 1
+        self.selected_recipe_id = 230
 
     async def _async_update_data(self):
         device = bluetooth.async_ble_device_from_address(
