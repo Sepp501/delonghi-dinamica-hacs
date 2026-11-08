@@ -14,6 +14,10 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import CHAR_UUID, SCAN_INTERVAL
 from .monitor import build_power_on, build_status_request, parse_monitor
+from .statistics import (
+    STATISTICS_RANGES, build_statistics_request,
+    calculated_statistics, parse_statistics_response,
+)
 from .protocol import (
     name_request, parse_names, parse_profiles, parse_recipe,
     profile_request, recipe_request, valid,
@@ -67,7 +71,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
 
         frames = asyncio.Queue()
         buffer = bytearray()
-        result = {"profiles": {}, "names": [], "recipes": {}, "connected": False, "monitor": None}
+        result = {"profiles": {}, "names": [], "recipes": {}, "connected": False, "monitor": None, "statistics": {}, "statistics_raw": {}}
 
         def notification(_sender, data):
             buffer.extend(data)
@@ -136,6 +140,39 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                                 break
                     except (BleakError, OSError, asyncio.TimeoutError) as exc:
                         _LOGGER.debug("Monitor query unavailable: %s", exc)
+                    # Statistics uses a separate 0xA2/0x0F response, not
+                    # the 0xA4/0xAA/0xA6 recipe-response protocol.
+                    # Fetch sparse ranges independently; a failed range
+                    # must not erase counters decoded from other ranges.
+                    counters = {}
+                    for start, count in STATISTICS_RANGES:
+                        try:
+                            while not frames.empty():
+                                frames.get_nowait()
+                            await client.write_gatt_char(
+                                CHAR_UUID, build_statistics_request(start, count),
+                                response=True,
+                            )
+                            deadline = asyncio.get_running_loop().time() + 5
+                            while True:
+                                remaining = deadline - asyncio.get_running_loop().time()
+                                if remaining <= 0:
+                                    raise TimeoutError(f"No statistics reply for {start}")
+                                packet = await asyncio.wait_for(frames.get(), remaining)
+                                if len(packet) < 4 or packet[2:4] != bytes((0xA2, 0x0F)):
+                                    continue
+                                try:
+                                    decoded = parse_statistics_response(packet, start)
+                                except ValueError as exc:
+                                    _LOGGER.debug("Invalid 0xA2 response for %s: %s", start, exc)
+                                    continue
+                                counters.update(decoded)
+                                break
+                        except (BleakError, OSError, TimeoutError, asyncio.TimeoutError) as exc:
+                            _LOGGER.debug("Statistics range %s unavailable: %s", start, exc)
+                    result["statistics_raw"] = counters
+                    result["statistics"] = calculated_statistics(counters)
+
                     # These are independent read-only operations. A failure in
                     # one must not hide successful responses from the others.
                     try:
