@@ -28,8 +28,8 @@ ALARM_NAMES = {
 
 def build_status_request() -> bytes:
     """Non-mutating request used by the earlier Delonghi BLE integration."""
-    payload = bytes((0x0D, 0x05, 0x75, 0x0F))
-    return payload + binascii.crc_hqx(payload, 0x1D0F).to_bytes(2, "big")
+    # 0x75/0x0F status query is a fixed command in the established integration.
+    return bytes.fromhex("0D 05 75 0F DA 25")
 
 
 def build_power_on() -> bytes:
