@@ -21,12 +21,12 @@ def build_name_write(name: str, icon: int, profile_id: int = 1,
     name = _valid_name(name)
     if not isinstance(icon, int) or isinstance(icon, bool) or not 0 <= icon <= 255:
         raise ValueError("Ungültige Icon-ID")
-    slot = recipe_id - 229  # Verified from the official APK's service call.
+    # EXPERIMENT ONLY: 04 04 was transmitted and had no visible effect.\n    # Try 03 03 once, with explicit user permission to affect another custom slot.\n    slot = recipe_id - 230
     utf16 = name.encode("utf-16-be")
     if len(utf16) > 20:
         raise ValueError("Name überschreitet zehn UTF-16-Codeeinheiten")
     padded = utf16.ljust(20, b"\x00")
-    # Standard 29 bytes: 0D 1C AB F0 04 04 [name:20] [icon:1] [CRC:2].
+    # Experimental 29 bytes: 0D 1C AB F0 03 03 [name:20] [icon:1] [CRC:2].
     body = bytes((0xAB, 0xF0, slot, slot)) + padded + bytes((icon,))
     prefix = bytes((0x0D, len(body) + 3)) + body
     packet = prefix + binascii.crc_hqx(prefix, 0x1D0F).to_bytes(2, "big")
