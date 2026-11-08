@@ -116,7 +116,7 @@ class DinamicaNameSaveProbe(CoordinatorEntity, ButtonEntity):
 
 
 class DinamicaBLECacheMTUDiagnostic(CoordinatorEntity, ButtonEntity):
-    """Explicit, read-only BLE cache reset and fresh MTU readback."""
+    """Explicit transport-only BLE cache reset and fresh MTU readback."""
 
     _attr_has_entity_name = True
     _attr_name = "Bluetooth Cache und MTU prüfen (Test)"
@@ -137,7 +137,7 @@ class DinamicaBLECacheMTUDiagnostic(CoordinatorEntity, ButtonEntity):
     def extra_state_attributes(self):
         return dict(getattr(self.coordinator, "last_ble_diagnostic", {}) or {
             "status": "Noch nicht ausgeführt",
-            "scope": "Nur Cache löschen, Verbindung erneuern und 0xAA-Namen lesen",
+            "scope": "Nur Cache löschen, Verbindung erneuern und GATT-/MTU-Metadaten prüfen",
             "writes_recipe_or_name": False,
         })
 
