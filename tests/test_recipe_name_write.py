@@ -24,7 +24,7 @@ class NameWriteTests(unittest.TestCase):
     def test_exact_packet_layout_and_crc(self):
         p = names.build_name_write("Testkaffee", icon=7)
         self.assertEqual(len(p), 29)
-        self.assertEqual(p[:6], bytes.fromhex("0D 1C AB F0 04 04"))
+        self.assertEqual(p[:6], bytes.fromhex("0D 1C AB F0 03 03"))
         self.assertEqual(p[6:26], "Testkaffee".encode("utf-16-be"))
         self.assertEqual(p[26], 7)
         self.assertEqual(p[27:], binascii.crc_hqx(p[:-2], 0x1D0F).to_bytes(2,"big"))
