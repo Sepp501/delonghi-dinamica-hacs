@@ -21,16 +21,24 @@ def display_profiles(raw_profiles):
 
 def display_drink_name(names, recipe_id):
     """Get a confirmed drink name from the current 0xAA name response."""
-    if recipe_id not in CONFIRMED_RECIPE_IDS:
+    if recipe_id not in range(230, 236):
         return None
     index = recipe_id - 230
     if index >= len(names):
-        return None
+        return f"Frei {recipe_id - 232}" if recipe_id > 232 else None
     entry = names[index]
     if not isinstance(entry, dict):
         return None
     name = entry.get("name")
-    return name.strip() if isinstance(name, str) and name.strip() else None
+    if not isinstance(name, str):
+        return None
+    name = name.strip()
+    if recipe_id > 232:
+        # These slots have not been mapped against the app. Only display
+        # generic CUSTOM placeholders as free; retain future custom names.
+        if not name or name.upper() == f"CUSTOM {recipe_id - 229}":
+            return f"Frei {recipe_id - 232}"
+    return name or None
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
