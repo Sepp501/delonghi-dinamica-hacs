@@ -57,23 +57,22 @@ async def async_setup_entry(hass, entry, async_add_entities):
         DinamicaSensor(coordinator, entry, "profiles", "Benutzerprofile"),
         DinamicaSensor(coordinator, entry, "names", "Getränkenamen"),
     ]
-    for profile_id in (1, 2, 3):
-        for recipe_id in range(230, 236):
+    # Six shared recipes; preserve profile-1 unique IDs and history.
+    for recipe_id in range(230, 236):
+        entities.append(
+            DinamicaSensor(
+                coordinator, entry, "recipe",
+                f"Rezept {recipe_id} Kaffee",
+                (1, recipe_id),
+            )
+        )
+        for kind, label in (("milk", "Milchdauer"), ("strength", "Stärke")):
             entities.append(
                 DinamicaSensor(
-                    coordinator, entry, "recipe",
-                    f"Profil {profile_id} Rezept {recipe_id} Kaffee",
-                    (profile_id, recipe_id),
+                    coordinator, entry, kind,
+                    f"Rezept {recipe_id} {label}",
+                    (1, recipe_id),
                 )
-            )
-            # Extra read-only entities use the same cached recipe response.
-            for kind, label in (("milk", "Milchdauer"), ("strength", "Stärke")):
-                entities.append(
-                    DinamicaSensor(
-                        coordinator, entry, kind,
-                        f"Profil {profile_id} Rezept {recipe_id} {label}",
-                        (profile_id, recipe_id),
-                    )
                 )
     for kind, label in (
         ("selected_coffee", "Ausgewähltes Getränk Kaffee"),
@@ -139,12 +138,9 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
             return self._attr_name
         data = self.coordinator.data or {}
         profile_id, recipe_id = self._recipe_key
-        profile = display_profiles(data.get("profiles", {})).get(
-            profile_id, f"Profil {profile_id}"
-        )
         drink = display_drink_name(data.get("names", []), recipe_id)
         measurement = {"recipe": "Kaffee", "milk": "Milchdauer", "strength": "Stärke"}[self._kind]
-        return f"{profile} {drink or f'Rezept {recipe_id}'} {measurement}"
+        return f"{drink or f'Rezept {recipe_id}'} {measurement}"
 
     @property
     def available(self):
@@ -162,7 +158,7 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
         if self._kind == "statistics_raw":
             return bool(data.get("statistics_raw"))
         if self._kind.startswith("selected_"):
-            profile_id = self.coordinator.selected_profile_id
+            profile_id = 1
             recipe_id = self.coordinator.selected_recipe_id
             field = {
                 "selected_coffee": "coffee_ml",
@@ -190,7 +186,7 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
         if self._kind == "statistics_raw":
             return len(data.get("statistics_raw", {}))
         if self._kind.startswith("selected_"):
-            profile_id = self.coordinator.selected_profile_id
+            profile_id = 1
             recipe_id = self.coordinator.selected_recipe_id
             field = {
                 "selected_coffee": "coffee_ml",
@@ -221,16 +217,14 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
                 "confirmed_recipe_ids": sorted(CONFIRMED_RECIPE_IDS),
             }
         if self._kind.startswith("selected_"):
-            profile_id = self.coordinator.selected_profile_id
+            profile_id = 1
             recipe_id = self.coordinator.selected_recipe_id
         else:
             profile_id, recipe_id = self._recipe_key
         recipe = data.get("recipes", {}).get(profile_id, {}).get(recipe_id)
         return {
             "profile_id": profile_id,
-            "profile_name": display_profiles(data.get("profiles", {})).get(
-                profile_id, f"Profil {profile_id}"
-            ),
+            "shared_across_profiles": True,
             "recipe_id": recipe_id,
             "drink_name": display_drink_name(data.get("names", []), recipe_id),
             "milk_seconds": recipe.milk_seconds if recipe else None,
