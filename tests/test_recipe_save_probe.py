@@ -95,6 +95,30 @@ class SaveProbeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             save.make_save_probe(r, draft())
 
+    def test_selected_profile_and_recipe_save_packet(self):
+        r = recipe()
+        r.profile_id = 2
+        r.recipe_id = 234
+        p = save.make_save_probe(
+            r, dict(coffee=120, milk=16, strength=3, name="Frei 2"),
+            allow_all=True,
+        )
+        self.assertEqual(p[2:6], bytes((0x83, 0xF0, 234, 0x01)))
+        self.assertEqual(p[-3], save.profile_operation(2, save.MODE_SAVE))
+        self.assertEqual(int.from_bytes(p[-2:], "big"),
+                         binascii.crc_hqx(p[:-2], 0x1D0F))
+        self.assertEqual(save.make_profile_select(2)[4], 2)
+
+    def test_no_unsupported_profile_recipe_write(self):
+        r = recipe()
+        r.profile_id = 4
+        with self.assertRaises(ValueError):
+            save.make_save_probe(r, draft(), allow_all=True)
+        r.profile_id = 1
+        r.recipe_id = 229
+        with self.assertRaises(ValueError):
+            save.make_save_probe(r, draft(), allow_all=True)
+
     def test_profile_select_packet_crc(self):
         p = save.make_profile_select()
         self.assertEqual(p[:5], bytes.fromhex("0D 06 A9 F0 01"))
