@@ -14,6 +14,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import CHAR_UUID, SCAN_INTERVAL
 from .monitor import build_power_on, build_status_request, parse_monitor
+from .recipe_save_probe import make_save_probe, make_profile_select
+from .number import initialize_draft
 from .statistics import (
     STATISTICS_RANGES, build_statistics_request,
     calculated_statistics, parse_statistics_response,
@@ -61,6 +63,147 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                 await client.disconnect()
         # A successful write does not imply the machine is already ready.
         await self.async_request_refresh()
+
+    async def async_experimental_save_test_coffee(self):
+        """Explicit user-triggered, single-slot experimental Save, verified via A6.
+
+        This does NOT update the recipe name or the milk/aroma fields.
+        The candidate 0x83 Save mode on this ECAM revision is not yet proven.
+        """
+        draft = dict(initialize_draft(self))
+        self.last_save_result = {
+            "result": "In Bearbeitung", "target": "Sepp / Frei 1",
+            "requested_coffee_ml": draft["coffee"], "verified": False,
+        }
+        self.async_update_listeners()
+        try:
+            async with self._ble_lock:
+                device = bluetooth.async_ble_device_from_address(
+                    self.hass, self.mac, connectable=True,
+                )
+                if device is None:
+                    raise ValueError("Kaffeemaschine nicht über Bluetooth erreichbar")
+                client = await establish_connection(
+                    client_class=BleakClient, device=device,
+                    name="DeLonghi Dinamica Plus", max_attempts=3,
+                )
+                queue = asyncio.Queue()
+                buffer = bytearray()
+
+                def notification(_sender, data):
+                    buffer.extend(data)
+                    while buffer:
+                        if buffer[0] != 0xD0:
+                            del buffer[0]
+                            continue
+                        if len(buffer) < 2:
+                            return
+                        size = buffer[1] + 1
+                        if size < 6 or size > 255:
+                            del buffer[0]
+                            continue
+                        if len(buffer) < size:
+                            return
+                        queue.put_nowait(bytes(buffer[:size]))
+                        del buffer[:size]
+
+                async def matched(command, opcode, timeout=8):
+                    while not queue.empty():
+                        queue.get_nowait()
+                    await client.write_gatt_char(CHAR_UUID, command, response=True)
+                    deadline = asyncio.get_running_loop().time() + timeout
+                    while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
+                        try:
+                            packet = await asyncio.wait_for(queue.get(), remaining)
+                        except asyncio.TimeoutError:
+                            break
+                        if valid(packet, opcode):
+                            if opcode != 0xA6 or packet[4:6] == bytes((1, 233)):
+                                return packet
+                    raise TimeoutError(f"Keine passende Antwort auf 0x{opcode:02X}")
+
+                try:
+                    await client.start_notify(CHAR_UUID, notification)
+                    # Require fresh status, not just the coordinator's old cache.
+                    while not queue.empty():
+                        queue.get_nowait()
+                    await client.write_gatt_char(
+                        CHAR_UUID, build_status_request(), response=True,
+                    )
+                    status = None
+                    deadline = asyncio.get_running_loop().time() + 5
+                    while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
+                        try:
+                            packet = await asyncio.wait_for(queue.get(), remaining)
+                        except asyncio.TimeoutError:
+                            break
+                        if len(packet) > 3 and packet[2] in (0x70, 0x75):
+                            try:
+                                status = parse_monitor(packet)
+                            except ValueError:
+                                pass
+                            if status:
+                                break
+                    if status is None or status["state_code"] != 7 or status["dispensing"]:
+                        raise ValueError("Maschine muss eingeschaltet und bereit sein")
+
+                    # Explicitly choose profile 1; HA's dropdown does NOT do this.
+                    await client.write_gatt_char(
+                        CHAR_UUID, make_profile_select(), response=True,
+                    )
+                    await asyncio.sleep(0.6)
+                    before = parse_recipe(await matched(
+                        recipe_request(1, 233), 0xA6
+                    ))
+                    payload = make_save_probe(before, draft)
+
+                    _LOGGER.warning(
+                        "EXPERIMENTAL ECAM SAVE Sepp/Frei1 before=%s proposed_ml=%s "
+                        "payload=%s",
+                        before.coffee_ml, draft["coffee"], payload.hex(" "),
+                    )
+                    while not queue.empty():
+                        queue.get_nowait()
+                    await client.write_gatt_char(CHAR_UUID, payload, response=True)
+                    # Save-mode acknowledgement is insufficient: verify readback.
+                    await asyncio.sleep(1.0)
+                    after = parse_recipe(await matched(
+                        recipe_request(1, 233), 0xA6, timeout=10
+                    ))
+                    if (
+                        after.coffee_ml != int(draft["coffee"])
+                        or after.milk_seconds != before.milk_seconds
+                        or after.strength != before.strength
+                    ):
+                        raise ValueError(
+                            "Speicherung nicht bestätigt: vorher=%s ml, danach=%s ml, "
+                            "Soll=%s ml; Milch/Stärke müssen unverändert bleiben" %
+                            (before.coffee_ml, after.coffee_ml, draft["coffee"])
+                        )
+                    self.last_save_result = {
+                        "result": "Kaffeemenge per A6 bestätigt",
+                        "target": "Sepp / Frei 1", "before_ml": before.coffee_ml,
+                        "after_ml": after.coffee_ml, "verified": True,
+                        "name_saved": False, "milk_saved": False,
+                        "strength_saved": False,
+                    }
+                    self.recipe_draft["pending"] = False
+                finally:
+                    try:
+                        await client.stop_notify(CHAR_UUID)
+                    except BleakError:
+                        pass
+                    await client.disconnect()
+            await self.async_request_refresh()
+        except Exception as exc:
+            self.last_save_result = {
+                "result": "Test nicht bestätigt", "verified": False,
+                "detail": str(exc),
+            }
+            _LOGGER.error("Experimental recipe save not confirmed: %s", exc)
+            raise
+        finally:
+            self.async_update_listeners()
 
     async def _async_poll_data(self):
         device = bluetooth.async_ble_device_from_address(
