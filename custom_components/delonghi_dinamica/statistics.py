@@ -33,7 +33,7 @@ def parse_statistics_response(packet: bytes, expected_start: int) -> dict[int, i
     return counters
 
 
-STATISTICS_RANGES = ((100, 10), (110, 10), (3000, 10), (3017, 10), (3077, 4))
+STATISTICS_RANGES = ((100, 10), (110, 10), (3000, 10), (3077, 4))
 
 
 def calculated_statistics(values: dict[int, int]) -> dict[str, int | float]:
@@ -51,9 +51,6 @@ def calculated_statistics(values: dict[int, int]) -> dict[str, int | float]:
         ("descaling_count", 105),
         ("filter_change_count", 108),
         ("milk_cleaning_count", 111),
-        ("cold_milk_total", 3017),
-        ("chocolate_total", 3021),
-        ("tea_total", 3025),
     ):
         if key in values:
             result[name] = values[key]
