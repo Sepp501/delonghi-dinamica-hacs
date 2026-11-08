@@ -1,6 +1,7 @@
-"""Validated, strictly offline recipe draft for Sepp's Frei 1.
+"""Validate shared drink recipe drafts before the explicit Save operation.
 
-Never transmit candidate packets to BLE without separately verified write protocol.
+No BLE operations occur in this module. Transmit only after a manual Save and
+fresh machine state check in the coordinator.
 """
 from dataclasses import dataclass
 
