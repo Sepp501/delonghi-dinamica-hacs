@@ -49,7 +49,6 @@ def calculated_statistics(values: dict[int, int]) -> dict[str, int | float]:
             result[name] = sum(present)
     for name, key in (
         ("descaling_count", 105),
-        ("filter_change_count", 108),
         ("milk_cleaning_count", 111),
     ):
         if key in values:
