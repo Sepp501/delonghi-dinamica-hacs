@@ -1,4 +1,4 @@
-"""DeLonghi Dinamica Plus – experimental read-only Home Assistant integration."""
+"""DeLonghi Dinamica Plus custom Bluetooth integration for Home Assistant."""
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -12,11 +12,10 @@ PLATFORMS = ["sensor", "select", "binary_sensor", "button", "number", "text"]
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Hide old detail sensors during the one-time 0.1.8 upgrade.
+    """Migrate legacy registry entries while retaining IDs and history.
 
-    Hiding keeps sensor state/history and existing entity IDs intact. Explicit
-    user-hidden entries are left alone. Migration runs once (v1 -> v2), so
-    subsequent user decisions to unhide are respected.
+    The version-1 migration is preserved for installations upgrading from an
+    early release. Newer cleanup is performed during normal setup.
     """
     if entry.version > 2:
         return False
