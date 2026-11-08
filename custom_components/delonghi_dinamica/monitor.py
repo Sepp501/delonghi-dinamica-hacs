@@ -4,17 +4,17 @@ import binascii
 STATE_NAMES = {
     0: "Aus",
     1: "Heizt auf",
-    2: "Spült",
+    2: "Schaltet aus",
     3: "Heizt auf",
-    4: "Heizt auf",
-    5: "Bereit",
+    4: "Entkalkung",
+    5: "Dampfbezug",
     6: "Bereitet Getränk zu",
     7: "Bereit",
     8: "Spült",
     10: "Bereitet vor",
     11: "Heißwasser",
     12: "Reinigt Milchauslauf",
-    14: "Entkalkt",
+    14: "Filterwechsel",
 }
 
 ALARM_NAMES = {
@@ -65,6 +65,9 @@ def parse_monitor(packet: bytes) -> dict:
     return {
         "is_on": state != 0,
         "state_code": state,
+        "dispensing": state in (5, 6, 11),
+        "progress_percent": packet[11] if packet[2] == 0x75 else None,
+        "sub_status": packet[10] if packet[2] == 0x75 else packet[9],
         "state": STATE_NAMES.get(state, f"Status {state}"),
         "alarms": alarms,
         "warnings": warning_names,
