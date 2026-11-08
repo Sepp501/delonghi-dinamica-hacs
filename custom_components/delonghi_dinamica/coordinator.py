@@ -153,13 +153,13 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                                 CHAR_UUID, build_statistics_request(start, count),
                                 response=True,
                             )
-                            deadline = asyncio.get_running_loop().time() + 5
+                            deadline = asyncio.get_running_loop().time() + 3
                             while True:
                                 remaining = deadline - asyncio.get_running_loop().time()
                                 if remaining <= 0:
                                     raise TimeoutError(f"No statistics reply for {start}")
                                 packet = await asyncio.wait_for(frames.get(), remaining)
-                                if len(packet) < 4 or packet[2:4] != bytes((0xA2, 0x0F)):
+                                if len(packet) < 4 or packet[2] != 0xA2:
                                     continue
                                 try:
                                     decoded = parse_statistics_response(packet, start)
