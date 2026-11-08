@@ -8,7 +8,7 @@ import logging
 from datetime import timedelta
 
 from bleak import BleakClient, BleakError
-from bleak_retry_connector import establish_connection
+from bleak_retry_connector import establish_connection, BleakClientWithServiceCache
 from homeassistant.components import bluetooth
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -504,6 +504,138 @@ class DinamicaCoordinator(DataUpdateCoordinator):
             raise
         finally:
             trace("finished", verified=report.get("verified", False))
+            self.async_update_listeners()
+
+
+    async def async_diagnose_ble_cache_mtu(self):
+        """Explicit read-only BLE cache/MTU probe. Never sends recipe/name saves."""
+        report = {
+            "result": "BLE-Diagnose läuft",
+            "verified": False,
+            "writes_recipe_or_name": False,
+            "steps": [],
+            "diagnostic_version": "0.2.11",
+        }
+        self.last_ble_diagnostic = report
+        self.async_update_listeners()
+
+        def record(stage, **details):
+            entry = {"stage": stage, **details}
+            report["steps"].append(entry)
+            _LOGGER.warning("DELONGHI BLE MTU DIAG %s", entry)
+
+        try:
+            async with self._ble_lock:
+                device = bluetooth.async_ble_device_from_address(
+                    self.hass, self.mac, connectable=True,
+                )
+                if device is None:
+                    raise BleakError("Kaffeemaschine nicht über HA Bluetooth erreichbar")
+
+                # The wrapper forwards the documented cache-clearing extension.
+                cached_client = await establish_connection(
+                    client_class=BleakClientWithServiceCache,
+                    device=device,
+                    name="DeLonghi Dinamica Plus MTU cache diagnostic",
+                    max_attempts=3,
+                )
+                try:
+                    report["mtu_initial"] = cached_client.mtu_size
+                    record("initial_connection", mtu=report["mtu_initial"])
+                    clear = getattr(cached_client, "clear_cache", None)
+                    if clear is None:
+                        raise RuntimeError("BleakClientWithServiceCache.clear_cache nicht verfügbar")
+                    cleared = await clear()
+                    report["cache_clear_result"] = bool(cleared)
+                    record("cache_clear", result=bool(cleared))
+                    if not cleared:
+                        raise RuntimeError("Bluetooth-Cache konnte nicht gelöscht werden")
+                finally:
+                    await cached_client.disconnect()
+
+                # Force uncached service discovery without altering standard polling.
+                await asyncio.sleep(0.5)
+                fresh_device = bluetooth.async_ble_device_from_address(
+                    self.hass, self.mac, connectable=True,
+                )
+                if fresh_device is None:
+                    raise BleakError("Kaffeemaschine für erneute Verbindung nicht gefunden")
+                client = BleakClient(fresh_device)
+                await client.connect(dangerous_use_bleak_cache=False)
+                try:
+                    report["mtu_fresh"] = client.mtu_size
+                    report["service_count"] = len(client.services.services)
+                    char = client.services.get_characteristic(CHAR_UUID)
+                    report["characteristic_found"] = char is not None
+                    if char is None:
+                        raise RuntimeError("DeLonghi GATT-Charakteristik nicht gefunden")
+                    report["characteristic_properties"] = list(char.properties)
+                    report["max_write_without_response"] = char.max_write_without_response_size
+                    record(
+                        "uncached_connection",
+                        mtu=report["mtu_fresh"],
+                        services=report["service_count"],
+                        properties=report["characteristic_properties"],
+                    )
+
+                    # 0xAA only requests names; does NOT modify stored data.
+                    frames = asyncio.Queue()
+                    buffer = bytearray()
+
+                    def on_notification(_sender, data):
+                        buffer.extend(data)
+                        while buffer:
+                            if buffer[0] != 0xD0:
+                                del buffer[0]
+                                continue
+                            if len(buffer) < 2:
+                                return
+                            size = buffer[1] + 1
+                            if size < 6 or size > 255:
+                                del buffer[0]
+                                continue
+                            if len(buffer) < size:
+                                return
+                            frames.put_nowait(bytes(buffer[:size]))
+                            del buffer[:size]
+
+                    await client.start_notify(CHAR_UUID, on_notification)
+                    try:
+                        await client.write_gatt_char(
+                            CHAR_UUID, name_request(), response=True,
+                        )
+                        deadline = asyncio.get_running_loop().time() + 10
+                        while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
+                            try:
+                                frame = await asyncio.wait_for(frames.get(), remaining)
+                            except asyncio.TimeoutError:
+                                break
+                            if valid(frame, 0xAA):
+                                names = parse_names(frame)
+                                report["names_read_count"] = len(names)
+                                report["readback_ok"] = len(names) == 6
+                                record("name_read", count=len(names), ok=report["readback_ok"])
+                                break
+                        else:
+                            report["readback_ok"] = False
+                        if "readback_ok" not in report:
+                            report["readback_ok"] = False
+                        if not report["readback_ok"]:
+                            raise TimeoutError("Keine vollständige 0xAA-Namensantwort")
+                    finally:
+                        await client.stop_notify(CHAR_UUID)
+                finally:
+                    await client.disconnect()
+
+                report["verified"] = True
+                report["result"] = "BLE-Diagnose abgeschlossen: 0xAA erfolgreich"
+                record("finished", mtu=report.get("mtu_fresh"), readback_ok=True)
+        except Exception as exc:
+            report["result"] = "BLE-Diagnose fehlgeschlagen"
+            report["detail"] = str(exc)
+            record("failed", error_type=type(exc).__name__, error=str(exc))
+            raise
+        finally:
             self.async_update_listeners()
 
     async def _async_poll_data(self):
