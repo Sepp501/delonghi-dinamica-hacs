@@ -14,13 +14,12 @@ STATE_NAMES = {
     10: "Bereitet vor",
     11: "Heißwasser",
     12: "Reinigt Milchauslauf",
-    14: "Filterwechsel",
 }
 
 ALARM_NAMES = {
     0: "Wassertank leer", 1: "Kaffeesatzbehälter voll",
-    2: "Entkalkung erforderlich", 3: "Wasserfilter wechseln",
-    4: "Mahlgrad zu fein", 5: "Kaffeebohnen leer",
+    2: "Entkalkung erforderlich",
+    4: "Mahlgrad zu fein",
     6: "Service erforderlich", 7: "Temperatursensorfehler",
     11: "Abtropfschale leer", 12: "Hydraulikfehler",
 }
@@ -59,7 +58,7 @@ def parse_monitor(packet: bytes) -> dict:
         raise ValueError("Not a supported monitor frame")
 
     warning_names = [
-        ALARM_NAMES.get(i, f"Alarm {i}") for i in range(32)
+        ALARM_NAMES[i] for i in ALARM_NAMES
         if alarms & (1 << i)
     ]
     return {
