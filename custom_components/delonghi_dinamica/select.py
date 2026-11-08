@@ -64,6 +64,9 @@ class DinamicaSelect(CoordinatorEntity, SelectEntity):
         item_id = int(option.split(" · ", 1)[0])
         if self._kind == "profile":
             self.coordinator.selected_profile_id = item_id
+            # Refresh displayed draft amounts when the selected profile changes.
+            from .number import initialize_draft
+            initialize_draft(self.coordinator)
         else:
             self.coordinator.selected_recipe_id = item_id
             # Selection switches the complete local draft, never writes BLE.
