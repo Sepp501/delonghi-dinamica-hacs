@@ -1,6 +1,5 @@
 """Read-only machine power state from the DeLonghi status telegram."""
 from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorDeviceClass
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_MAC, DEFAULT_NAME, DOMAIN
@@ -58,7 +57,8 @@ class DinamicaMonitorFlag(CoordinatorEntity, BinarySensorEntity):
         self._bit = alarm_bit
         self._attr_name = label
         if alarm_bit is not None:
-            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+            # Tank, grounds and descaling warnings belong in Sensors,
+            # alongside the live machine status, not in Diagnostics.
             self._attr_device_class = BinarySensorDeviceClass.PROBLEM
         else:
             self._attr_device_class = BinarySensorDeviceClass.RUNNING
