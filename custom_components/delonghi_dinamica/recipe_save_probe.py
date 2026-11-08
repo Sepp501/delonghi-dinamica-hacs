@@ -26,13 +26,13 @@ def profile_operation(profile_id: int, operation: int) -> int:
 
 
 
-def make_save_probe(original, draft: dict) -> bytes:
-    """Build one Save command for amount, milk and strength, never the name."""
+def make_save_probe(original, draft: dict, *, allow_all: bool = False) -> bytes:
+    """Build a save-only 0x83 command; readback MUST verify applied values."""
     proposed = plan_test_recipe(
         original, int(draft["coffee"]), float(draft["milk"]),
-        int(draft["strength"]), str(draft["name"]),
+        int(draft["strength"]), str(draft["name"]), allow_all=allow_all,
     )
-    if original.profile_id != TEST_PROFILE_ID or original.recipe_id != TEST_RECIPE_ID:
+    if not allow_all and (original.profile_id != TEST_PROFILE_ID or original.recipe_id != TEST_RECIPE_ID):
         raise ValueError("Test limited to Sepp / Frei 1")
     if (
         proposed.coffee_ml_after == original.coffee_ml
@@ -60,15 +60,17 @@ def make_save_probe(original, draft: dict) -> bytes:
     # START is also used by brewing; the SAVE operation is unconfirmed for
     # this model and could still trigger brewing. Manual test only.
     body = (
-        bytes((0x83, 0xF0, TEST_RECIPE_ID, ACTION_START))
+        bytes((0x83, 0xF0, original.recipe_id, ACTION_START))
         + bytes(ingredients)
-        + bytes((profile_operation(TEST_PROFILE_ID, MODE_SAVE),))
+        + bytes((profile_operation(original.profile_id, MODE_SAVE),))
     )
     prefix = bytes((0x0D, len(body) + 3)) + body
     return prefix + binascii.crc_hqx(prefix, 0x1D0F).to_bytes(2, "big")
 
 
-def make_profile_select() -> bytes:
-    """Known 0xA9 profile selector: explicitly select target profile 1."""
-    payload = bytes((0x0D, 0x06, 0xA9, 0xF0, TEST_PROFILE_ID))
+def make_profile_select(profile_id: int = TEST_PROFILE_ID) -> bytes:
+    """Known 0xA9 profile selector for the requested machine profile."""
+    if profile_id not in (1, 2, 3):
+        raise ValueError("Nicht unterstütztes Profil")
+    payload = bytes((0x0D, 0x06, 0xA9, 0xF0, profile_id))
     return payload + binascii.crc_hqx(payload, 0x1D0F).to_bytes(2, "big")
