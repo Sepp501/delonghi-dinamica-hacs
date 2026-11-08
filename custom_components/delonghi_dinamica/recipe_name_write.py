@@ -21,7 +21,9 @@ def build_name_write(name: str, icon: int, profile_id: int = 1,
     name = _valid_name(name)
     if not isinstance(icon, int) or isinstance(icon, bool) or not 0 <= icon <= 255:
         raise ValueError("Ungültige Icon-ID")
-    # EXPERIMENT ONLY: 04 04 was transmitted and had no visible effect.\n    # Try 03 03 once, with explicit user permission to affect another custom slot.\n    slot = recipe_id - 230
+    # EXPERIMENT ONLY: 04 04 was transmitted and had no visible effect.
+    # Try 03 03 once, with explicit user permission to affect another custom slot.
+    slot = recipe_id - 230
     utf16 = name.encode("utf-16-be")
     if len(utf16) > 20:
         raise ValueError("Name überschreitet zehn UTF-16-Codeeinheiten")
