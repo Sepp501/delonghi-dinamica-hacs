@@ -8,7 +8,7 @@ from .const import CONF_MAC, DEFAULT_NAME, DOMAIN
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([DinamicaPowerOn(coordinator, entry), DinamicaRecipeSaveUnavailable(coordinator, entry), DinamicaBLECacheMTUDiagnostic(coordinator, entry)])
+    async_add_entities([DinamicaPowerOn(coordinator, entry), DinamicaRecipeSaveUnavailable(coordinator, entry)])
 
 
 class DinamicaPowerOn(CoordinatorEntity, ButtonEntity):
@@ -117,36 +117,3 @@ class DinamicaNameSaveProbe(CoordinatorEntity, ButtonEntity):
             await self.coordinator.async_experimental_save_test_name()
         except Exception as exc:
             raise HomeAssistantError(f"Namens-Test fehlgeschlagen: {exc}") from exc
-
-
-class DinamicaBLECacheMTUDiagnostic(CoordinatorEntity, ButtonEntity):
-    """Explicit transport-only BLE cache reset and fresh MTU readback."""
-
-    _attr_has_entity_name = True
-    _attr_name = "Bluetooth Cache und MTU prüfen (Test)"
-    _attr_icon = "mdi:bluetooth-settings"
-
-    def __init__(self, coordinator, entry):
-        super().__init__(coordinator)
-        mac = entry.data[CONF_MAC]
-        self._attr_unique_id = f"{mac}_ble_cache_mtu_diagnostic"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, mac)},
-            "name": entry.title or DEFAULT_NAME,
-            "manufacturer": "De'Longhi",
-            "model": "Dinamica Plus",
-        }
-
-    @property
-    def extra_state_attributes(self):
-        return dict(getattr(self.coordinator, "last_ble_diagnostic", {}) or {
-            "status": "Noch nicht ausgeführt",
-            "scope": "Nur Cache löschen, Verbindung erneuern und GATT-/MTU-Metadaten prüfen",
-            "writes_recipe_or_name": False,
-        })
-
-    async def async_press(self):
-        try:
-            await self.coordinator.async_diagnose_ble_cache_mtu()
-        except Exception as exc:
-            raise HomeAssistantError(f"Bluetooth-Diagnose fehlgeschlagen: {exc}") from exc
