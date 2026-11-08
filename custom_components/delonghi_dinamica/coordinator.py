@@ -71,6 +71,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
         The candidate 0x83 Save mode on this ECAM revision is not yet proven.
         """
         draft = dict(initialize_draft(self))
+        probe_details = {"notifications_after_save": [], "packet_hex": None, "before_ml": None, "after_ml": None}
         self.last_save_result = {
             "result": "In Bearbeitung", "target": "Sepp / Frei 1",
             "requested_coffee_ml": draft["coffee"], "verified": False,
@@ -156,6 +157,8 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                         recipe_request(1, 233), 0xA6
                     ))
                     payload = make_save_probe(before, draft)
+                    probe_details["before_ml"] = before.coffee_ml
+                    probe_details["packet_hex"] = payload.hex(" ").upper()
 
                     _LOGGER.warning(
                         "EXPERIMENTAL ECAM SAVE Sepp/Frei1 before=%s proposed_ml=%s "
@@ -165,11 +168,26 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     while not queue.empty():
                         queue.get_nowait()
                     await client.write_gatt_char(CHAR_UUID, payload, response=True)
+                    # Gather unsolicited replies without treating them as success.
+                    # They are kept for troubleshooting; A6 readback remains authoritative.
+                    try:
+                        while len(probe_details["notifications_after_save"]) < 15:
+                            packet = await asyncio.wait_for(queue.get(), timeout=0.35)
+                            probe_details["notifications_after_save"].append(
+                                packet.hex(" ").upper()
+                            )
+                    except asyncio.TimeoutError:
+                        pass
+                    _LOGGER.warning(
+                        "EXPERIMENTAL SAVE replies after 0x83: %s",
+                        probe_details["notifications_after_save"],
+                    )
                     # Save-mode acknowledgement is insufficient: verify readback.
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(0.65)
                     after = parse_recipe(await matched(
                         recipe_request(1, 233), 0xA6, timeout=10
                     ))
+                    probe_details["after_ml"] = after.coffee_ml
                     if (
                         after.coffee_ml != int(draft["coffee"])
                         or after.milk_seconds != before.milk_seconds
@@ -186,6 +204,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                         "after_ml": after.coffee_ml, "verified": True,
                         "name_saved": False, "milk_saved": False,
                         "strength_saved": False,
+                        **probe_details,
                     }
                     self.recipe_draft["pending"] = False
                 finally:
@@ -199,6 +218,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
             self.last_save_result = {
                 "result": "Test nicht bestätigt", "verified": False,
                 "detail": str(exc),
+                **probe_details,
             }
             _LOGGER.error("Experimental recipe save not confirmed: %s", exc)
             raise
