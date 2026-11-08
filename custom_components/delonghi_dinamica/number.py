@@ -1,4 +1,4 @@
-"""Three local test recipe fields; no unverified BLE write commands."""
+"""Three draft fields for the manually triggered, readback-verified Save."""
 from homeassistant.components.number import NumberEntity
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -113,7 +113,13 @@ class DinamicaDraftNumber(CoordinatorEntity, NumberEntity):
             "proposed_name": candidate.name_after,
             "original_parameters": str(candidate.original_parameters),
             "proposed_parameters": str(candidate.proposed_parameters),
-            "saved_to_machine": False,
+            "saved_to_machine": bool(
+                getattr(self.coordinator, "last_save_result", {}).get("verified")
+                and candidate.coffee_ml_after == original.coffee_ml
+                and candidate.milk_seconds_after == (original.milk_seconds or 0)
+                and candidate.strength_after == original.strength
+            ),
             "save_requested": draft.get("pending", False),
-            "note": "Entwurf – Schreibbefehle für dieses Modell noch nicht verifiziert",
+            "note": "Änderungen erst nach manuellem Speichern und A6-Rücklesung aktiv. "
+                    "Der Name wird noch nicht zur Maschine übertragen.",
         }
