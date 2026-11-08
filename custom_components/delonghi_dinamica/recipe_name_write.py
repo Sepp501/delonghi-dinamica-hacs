@@ -15,9 +15,9 @@ from .recipe_edit_draft import TEST_PROFILE_ID, TEST_RECIPE_ID, _valid_name
 
 def build_name_write(name: str, icon: int, profile_id: int = 1,
                      recipe_id: int = 233) -> bytes:
-    """Build ONLY the Sepp/Frei 1 single-name write packet."""
-    if (profile_id, recipe_id) != (TEST_PROFILE_ID, TEST_RECIPE_ID):
-        raise ValueError("Namens-Test nur für Sepp / Frei 1 erlaubt")
+    """Build one custom-slot name packet (230..235), shared across profiles."""
+    if profile_id != TEST_PROFILE_ID or recipe_id not in range(230, 236):
+        raise ValueError("Namensspeicherung nur für die sechs benutzerdefinierten Slots")
     name = _valid_name(name)
     if not isinstance(icon, int) or isinstance(icon, bool) or not 0 <= icon <= 255:
         raise ValueError("Ungültige Icon-ID")
@@ -36,9 +36,11 @@ def build_name_write(name: str, icon: int, profile_id: int = 1,
     return packet
 
 
-def get_test_name(names: list[dict]) -> dict:
-    """Select the fourth of six custom-name slots (230..235)."""
-    index = TEST_RECIPE_ID - 230
+def get_test_name(names: list[dict], recipe_id: int = TEST_RECIPE_ID) -> dict:
+    """Select one of six custom-name slots (230..235)."""
+    if recipe_id not in range(230, 236):
+        raise ValueError("Rezept-ID außerhalb der sechs Namensslots")
+    index = recipe_id - 230
     if len(names) != 6:
         raise ValueError(f"Erwartet sechs benutzerdefinierte Namen, erhalten: {len(names)}")
     item = names[index]
