@@ -66,15 +66,15 @@ class DinamicaCoordinator(DataUpdateCoordinator):
         await self.async_request_refresh()
 
     async def async_save_selected_recipe(self):
-        """One explicit Save button; validate all edits before any BLE writes.
+        """One Save button for selected recipe values and shared custom name.
 
-        Name writing is available for all six custom slots; recipe parameters
-        remain limited to the already tested profile-1 recipe 233 path.
+        Recipe writes use the APK-derived 0x83 save mode; all resulting values
+        must be independently checked via 0xA6 before reporting success.
         """
         draft = dict(initialize_draft(self))
         recipe_id = self.selected_recipe_id
-        original = ((self.data or {}).get("recipes", {}).get(1, {})
-                    .get(recipe_id))
+        original = ((self.data or {}).get("recipes", {})
+                    .get(self.selected_profile_id, {}).get(recipe_id))
         if original is None:
             raise ValueError("Ausgewähltes Rezept nicht verfügbar")
         if not 230 <= recipe_id <= 235:
@@ -89,8 +89,6 @@ class DinamicaCoordinator(DataUpdateCoordinator):
         name_changed = draft["name"] != draft["name_initial"]
         if not name_changed and not recipe_changed:
             raise ValueError("Keine Änderungen zum Speichern vorhanden")
-        if recipe_changed and (recipe_id != 233 or self.selected_profile_id != 1):
-            raise ValueError("Rezeptwerte nur für Profil 1 / Rezept 233 freigegeben; Name separat editierbar")
         if recipe_changed:
             await self.async_experimental_save_test_coffee()
         if name_changed:
@@ -107,6 +105,8 @@ class DinamicaCoordinator(DataUpdateCoordinator):
     async def async_experimental_save_test_coffee(self):
         """Explicit single-slot experimental value Save, verified via A6."""
         draft = dict(initialize_draft(self))
+        profile_id = self.selected_profile_id
+        recipe_id = self.selected_recipe_id
         probe_details = {
             "notifications_after_save": [], "packet_hex": None,
             "before_ml": None, "after_ml": None,
@@ -115,7 +115,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
             "name_saved": False,
         }
         self.last_save_result = {
-            "result": "In Bearbeitung", "target": "Sepp / Frei 1",
+            "result": "In Bearbeitung", "target": f"Profil {profile_id} Rezept {recipe_id}",
             "requested_coffee_ml": draft["coffee"], "verified": False,
         }
         self.async_update_listeners()
@@ -161,7 +161,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                         except asyncio.TimeoutError:
                             break
                         if valid(packet, opcode):
-                            if opcode != 0xA6 or packet[4:6] == bytes((1, 233)):
+                            if opcode != 0xA6 or packet[4:6] == bytes((profile_id, recipe_id)):
                                 return packet
                     raise TimeoutError(f"Keine passende Antwort auf 0x{opcode:02X}")
 
@@ -190,28 +190,34 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     if status is None or status["state_code"] != 7 or status["dispensing"]:
                         raise ValueError("Maschine muss eingeschaltet und bereit sein")
 
-                    # Explicitly choose profile 1; HA's dropdown does NOT do this.
+                    # Explicitly select correct target profile on machine.
                     await client.write_gatt_char(
-                        CHAR_UUID, make_profile_select(), response=True,
+                        CHAR_UUID, make_profile_select(profile_id), response=True,
                     )
                     await asyncio.sleep(0.6)
                     before = parse_recipe(await matched(
-                        recipe_request(1, 233), 0xA6
+                        recipe_request(profile_id, recipe_id), 0xA6
                     ))
-                    payload = make_save_probe(before, draft)
+                    payload = make_save_probe(before, draft, allow_all=True)
                     probe_details["before_ml"] = before.coffee_ml
                     probe_details["before_milk_seconds"] = before.milk_seconds
                     probe_details["before_strength"] = before.strength
                     probe_details["packet_hex"] = payload.hex(" ").upper()
 
                     _LOGGER.warning(
-                        "EXPERIMENTAL ECAM SAVE Sepp/Frei1 before=%s proposed_ml=%s "
-                        "payload=%s",
-                        before.coffee_ml, draft["coffee"], payload.hex(" "),
+                        "EXPERIMENTAL ECAM SAVE profile=%s recipe=%s before=%s "
+                        "proposed_ml=%s payload=%s",
+                        profile_id, recipe_id, before.coffee_ml, draft["coffee"], payload.hex(" "),
                     )
                     while not queue.empty():
                         queue.get_nowait()
-                    await client.write_gatt_char(CHAR_UUID, payload, response=True)
+                    # The original app fragments commands over ATT-MTU=23.
+                    # Each response=True write is awaited before the next.
+                    probe_details["gatt_chunk_lengths"] = []
+                    for offset in range(0, len(payload), 20):
+                        chunk = payload[offset:offset + 20]
+                        await client.write_gatt_char(CHAR_UUID, chunk, response=True)
+                        probe_details["gatt_chunk_lengths"].append(len(chunk))
                     # Gather unsolicited replies without treating them as success.
                     # They are kept for troubleshooting; A6 readback remains authoritative.
                     try:
@@ -229,7 +235,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     # Save-mode acknowledgement is insufficient: verify readback.
                     await asyncio.sleep(0.65)
                     after = parse_recipe(await matched(
-                        recipe_request(1, 233), 0xA6, timeout=10
+                        recipe_request(profile_id, recipe_id), 0xA6, timeout=10
                     ))
                     probe_details["after_ml"] = after.coffee_ml
                     probe_details["after_milk_seconds"] = after.milk_seconds
@@ -252,7 +258,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                         )
                     self.last_save_result = {
                         "result": "Kaffee, Milchdauer und Stärke per A6 bestätigt",
-                        "target": "Sepp / Frei 1", "before_ml": before.coffee_ml,
+                        "target": f"Profil {profile_id} Rezept {recipe_id}", "before_ml": before.coffee_ml,
                         "after_ml": after.coffee_ml, "verified": True,
                         "name_saved": False, "milk_saved": True,
                         "strength_saved": True,
