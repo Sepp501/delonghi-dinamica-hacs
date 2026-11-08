@@ -5,6 +5,7 @@ this coffee machine. No brewing or configuration writes are performed.
 """
 import asyncio
 import logging
+import time
 from datetime import timedelta
 
 from bleak import BleakClient, BleakError
@@ -12,7 +13,7 @@ from bleak_retry_connector import establish_connection, BleakClientWithServiceCa
 from homeassistant.components import bluetooth
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import CHAR_UUID, SCAN_INTERVAL
+from .const import CHAR_UUID, SCAN_INTERVAL, DETAIL_INTERVAL
 from .monitor import build_power_on, build_status_request, parse_monitor
 from .recipe_save_probe import make_save_probe, make_profile_select
 from .recipe_name_write import build_name_write, get_test_name, split_name_write_chunks
@@ -37,14 +38,81 @@ class DinamicaCoordinator(DataUpdateCoordinator):
         )
         self.mac = mac
         self._ble_lock = asyncio.Lock()
+        self._last_detail_refresh = 0.0
         # UI-only selection; never sent to the coffee machine.
         self.selected_profile_id = 1
         self.selected_recipe_id = 230
 
     async def _async_update_data(self):
+        """Fast status polling without repeating eighteen recipe reads."""
         # Protect the ESPHome connection against overlapping writes and polls.
         async with self._ble_lock:
-            return await self._async_poll_data()
+            if self.data is None or time.monotonic() - self._last_detail_refresh >= DETAIL_INTERVAL:
+                # During a full refresh keep the old 120-s cadence. If it
+                # fails, retry details at the next coordinator update.
+                result = await self._async_poll_data()
+                self._last_detail_refresh = time.monotonic()
+                return result
+            monitor = await self._async_poll_status()
+            return {**self.data, "monitor": monitor}
+
+    async def _async_poll_status(self):
+        """Fetch only 0x75 status; do not erase cached recipes or statistics."""
+        device = bluetooth.async_ble_device_from_address(
+            self.hass, self.mac, connectable=True,
+        )
+        if device is None:
+            raise UpdateFailed("Kaffeemaschine nicht über Bluetooth erreichbar")
+        frames = asyncio.Queue()
+        incoming = bytearray()
+
+        def notification(_sender, data):
+            incoming.extend(data)
+            while incoming:
+                if incoming[0] != 0xD0:
+                    del incoming[0]
+                    continue
+                if len(incoming) < 2:
+                    return
+                length = incoming[1] + 1
+                if length < 6 or length > 255:
+                    del incoming[0]
+                    continue
+                if len(incoming) < length:
+                    return
+                packet = bytes(incoming[:length])
+                del incoming[:length]
+                if len(packet) > 3 and packet[2] in (0x70, 0x75):
+                    frames.put_nowait(packet)
+
+        try:
+            client = await establish_connection(
+                client_class=BleakClient, device=device,
+                name="DeLonghi Dinamica Plus status", max_attempts=2,
+            )
+            try:
+                await client.start_notify(CHAR_UUID, notification)
+                try:
+                    await client.write_gatt_char(
+                        CHAR_UUID, build_status_request(), response=True,
+                    )
+                    deadline = asyncio.get_running_loop().time() + 4
+                    while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
+                        packet = await asyncio.wait_for(frames.get(), remaining)
+                        try:
+                            return parse_monitor(packet)
+                        except ValueError:
+                            continue
+                    raise TimeoutError("Keine gültige Maschinenstatus-Antwort")
+                finally:
+                    try:
+                        await client.stop_notify(CHAR_UUID)
+                    except BleakError:
+                        pass
+            finally:
+                await client.disconnect()
+        except (BleakError, OSError, TimeoutError, asyncio.TimeoutError) as exc:
+            raise UpdateFailed(f"Maschinenstatus nicht abrufbar: {exc}") from exc
 
     async def async_power_on(self):
         """Only send the power-on command when the HA button is pressed."""
