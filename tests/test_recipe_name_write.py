@@ -32,7 +32,7 @@ class NameWriteTests(unittest.TestCase):
     def test_short_name_null_padding(self):
         p = names.build_name_write("NEU", icon=2)
         self.assertEqual(p[6:12], "NEU".encode("utf-16-be"))
-        self.assertEqual(p[12:26], b"\\x00" * 14)
+        self.assertEqual(p[12:26], bytes(14))
 
     def test_non_ascii_name(self):
         p = names.build_name_write("München", icon=3)
