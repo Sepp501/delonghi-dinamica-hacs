@@ -1,8 +1,9 @@
-"""Experimental single-slot save probe, never used by the regular poller.
+"""Explicit recipe-save packet builder for the ECAM370.95.T.
 
-Only for Sepp / Frei 1. 0x83 + profile 1 + Save was verified on
-ECAM370.95.T for the coffee amount. Milk and strength are experiments.
-Never use PREPARE or PREPARE_AND_SAVE here.
+This function is used only by a manually triggered button and must never be
+called from the status poller. The 0x83 START action also appears in beverage
+commands; only the SAVE operation has been verified on the tested hardware.
+Never substitute PREPARE or PREPARE_AND_SAVE without separate verification.
 """
 import binascii
 
@@ -57,8 +58,8 @@ def make_save_probe(original, draft: dict, *, allow_all: bool = False) -> bytes:
         ingredients.extend(int(value).to_bytes(width, "big"))
 
     # [0x83,0xF0,recipe,action=START,ingredient...,profile+SAVE]
-    # START is also used by brewing; the SAVE operation is unconfirmed for
-    # this model and could still trigger brewing. Manual test only.
+    # START also occurs in brewing commands. Keep the observed SAVE mode
+    # unchanged; readback can detect success, not rule out side effects.
     body = (
         bytes((0x83, 0xF0, original.recipe_id, ACTION_START))
         + bytes(ingredients)
