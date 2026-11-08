@@ -15,6 +15,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import CHAR_UUID, SCAN_INTERVAL
 from .monitor import build_power_on, build_status_request, parse_monitor
 from .recipe_save_probe import make_save_probe, make_profile_select
+from .recipe_name_write import build_name_write, get_test_name
 from .number import initialize_draft
 from .statistics import (
     STATISTICS_RANGES, build_statistics_request,
@@ -237,6 +238,154 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                 **probe_details,
             }
             _LOGGER.error("Experimental recipe save not confirmed: %s", exc)
+            raise
+        finally:
+            self.async_update_listeners()
+
+    async def async_experimental_save_test_name(self):
+        """Manually save only the name of Sepp/Frei 1 with APK-derived 0xAB.
+
+        Preserve the icon from a fresh 0xAA read, and accept success ONLY
+        after a second 0xAA read gives exactly the requested name.
+        """
+        draft = dict(initialize_draft(self))
+        new_name = str(draft["name"])
+        report = {
+            "result": "Namens-Test läuft", "verified": False,
+            "target": "Sepp / Frei 1 (233)",
+            "requested_name": new_name, "packet_hex": None,
+            "notifications_after_write": [],
+        }
+        self.last_name_save_result = report
+        self.async_update_listeners()
+        try:
+            async with self._ble_lock:
+                device = bluetooth.async_ble_device_from_address(
+                    self.hass, self.mac, connectable=True,
+                )
+                if device is None:
+                    raise ValueError("Maschine nicht über Bluetooth erreichbar")
+                client = await establish_connection(
+                    client_class=BleakClient, device=device,
+                    name="DeLonghi Dinamica Plus", max_attempts=3,
+                )
+                frames = asyncio.Queue()
+                buf = bytearray()
+
+                def notification(_sender, data):
+                    buf.extend(data)
+                    while buf:
+                        if buf[0] != 0xD0:
+                            del buf[0]
+                            continue
+                        if len(buf) < 2:
+                            return
+                        packet_size = buf[1] + 1
+                        if not 6 <= packet_size <= 255:
+                            del buf[0]
+                            continue
+                        if len(buf) < packet_size:
+                            return
+                        frames.put_nowait(bytes(buf[:packet_size]))
+                        del buf[:packet_size]
+
+                async def read_names():
+                    while not frames.empty():
+                        frames.get_nowait()
+                    await client.write_gatt_char(
+                        CHAR_UUID, name_request(), response=True,
+                    )
+                    deadline = asyncio.get_running_loop().time() + 10
+                    while (time_left := deadline - asyncio.get_running_loop().time()) > 0:
+                        try:
+                            frame = await asyncio.wait_for(frames.get(), time_left)
+                        except asyncio.TimeoutError:
+                            break
+                        if valid(frame, 0xAA):
+                            return parse_names(frame)
+                    raise TimeoutError("Keine gültige 0xAA-Namensantwort")
+
+                try:
+                    await client.start_notify(CHAR_UUID, notification)
+                    # Fresh monitor status gates the unverified name write.
+                    while not frames.empty():
+                        frames.get_nowait()
+                    await client.write_gatt_char(
+                        CHAR_UUID, build_status_request(), response=True,
+                    )
+                    status = None
+                    deadline = asyncio.get_running_loop().time() + 5
+                    while (time_left := deadline - asyncio.get_running_loop().time()) > 0:
+                        try:
+                            frame = await asyncio.wait_for(frames.get(), time_left)
+                        except asyncio.TimeoutError:
+                            break
+                        if len(frame) > 3 and frame[2] in (0x70, 0x75):
+                            try:
+                                status = parse_monitor(frame)
+                            except ValueError:
+                                continue
+                            break
+                    if status is None or status["state_code"] != 7 or status["dispensing"]:
+                        raise ValueError("Maschine muss eingeschaltet und bereit sein")
+
+                    await client.write_gatt_char(
+                        CHAR_UUID, make_profile_select(), response=True,
+                    )
+                    await asyncio.sleep(0.6)
+                    original_names = await read_names()
+                    original = get_test_name(original_names)
+                    report["previous_name"] = original["name"]
+                    report["icon"] = original["icon"]
+                    if original["name"] != "Frei 1":
+                        raise ValueError(
+                            "Abbruch: erwarteter Originalname 'Frei 1', "
+                            f"Maschine meldet '{original['name']}'"
+                        )
+                    if new_name == original["name"]:
+                        raise ValueError("Bitte einen neuen Getränkenamen eingeben")
+
+                    payload = build_name_write(new_name, original["icon"])
+                    report["packet_hex"] = payload.hex(" ").upper()
+                    _LOGGER.warning(
+                        "EXPERIMENTAL 0xAB NAME WRITE Sepp/Frei1: %s",
+                        report["packet_hex"],
+                    )
+                    while not frames.empty():
+                        frames.get_nowait()
+                    await client.write_gatt_char(CHAR_UUID, payload, response=True)
+                    try:
+                        while len(report["notifications_after_write"]) < 12:
+                            frame = await asyncio.wait_for(frames.get(), timeout=0.35)
+                            report["notifications_after_write"].append(
+                                frame.hex(" ").upper()
+                            )
+                    except asyncio.TimeoutError:
+                        pass
+                    await asyncio.sleep(0.7)
+                    updated_names = await read_names()
+                    new = get_test_name(updated_names)
+                    report["actual_name"] = new["name"]
+                    report["actual_icon"] = new["icon"]
+                    if new["name"] != new_name or new["icon"] != original["icon"]:
+                        raise ValueError(
+                            "Namensspeicherung nicht bestätigt: "
+                            f"Soll '{new_name}', Ist '{new['name']}' "
+                            f"(Icon vorher {original['icon']}, nachher {new['icon']})"
+                        )
+                    report["verified"] = True
+                    report["result"] = "Getränkename über 0xAA bestätigt"
+                finally:
+                    try:
+                        await client.stop_notify(CHAR_UUID)
+                    except BleakError:
+                        pass
+                    await client.disconnect()
+            await self.async_request_refresh()
+        except Exception as exc:
+            report["result"] = "Namens-Test nicht bestätigt"
+            report["detail"] = str(exc)
+            _LOGGER.error("Experimental 0xAB name save failed: %s", exc)
             raise
         finally:
             self.async_update_listeners()
