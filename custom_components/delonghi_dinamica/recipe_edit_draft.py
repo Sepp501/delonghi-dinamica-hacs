@@ -47,9 +47,12 @@ def _valid_name(name: str) -> str:
 
 
 def plan_test_recipe(original, coffee_ml: int, milk_seconds: float,
-                     strength: int, name: str) -> CoffeeRecipeDraft:
+                     strength: int, name: str, *, allow_all: bool = False) -> CoffeeRecipeDraft:
     """Compute a candidate from the 0xA6 readback; does not produce a BLE command."""
-    if (original.profile_id, original.recipe_id) != (TEST_PROFILE_ID, TEST_RECIPE_ID):
+    if allow_all:
+        if original.profile_id not in (1, 2, 3) or original.recipe_id not in range(230, 236):
+            raise ValueError("Nur Profile 1–3 und Rezepte 230–235 erlaubt")
+    elif (original.profile_id, original.recipe_id) != (TEST_PROFILE_ID, TEST_RECIPE_ID):
         raise ValueError("Only profile Sepp / Frei 1 may be edited")
     if type(coffee_ml) is not int or not COFFEE_MIN_ML <= coffee_ml <= COFFEE_MAX_ML:
         raise ValueError("Coffee quantity is outside the supported 100–240 mL range")
@@ -91,7 +94,7 @@ def plan_test_recipe(original, coffee_ml: int, milk_seconds: float,
         # A new milk ingredient would change the drink type. Fail closed.
         raise ValueError("Original recipe has no milk field")
     return CoffeeRecipeDraft(
-        profile_id=TEST_PROFILE_ID, recipe_id=TEST_RECIPE_ID,
+        profile_id=original.profile_id, recipe_id=original.recipe_id,
         original_parameters=params, proposed_parameters=tuple(proposed),
         coffee_ml_before=original.coffee_ml, coffee_ml_after=coffee_ml,
         removed_milk_parameters=tuple(removed),
