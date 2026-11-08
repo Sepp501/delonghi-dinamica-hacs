@@ -52,13 +52,9 @@ def validate_draft(coordinator, draft):
     if original is None:
         raise ValueError("Ausgewähltes Rezept derzeit nicht auslesbar")
     _valid_name(str(draft["name"]))
-    if (coordinator.selected_recipe_id != TEST_RECIPE_ID
-            or coordinator.selected_profile_id != TEST_PROFILE_ID):
-        # Display values for all, but only proven 233/profile 1 is writable.
-        return None
     return plan_test_recipe(
         original, int(draft["coffee"]), float(draft["milk"]),
-        int(draft["strength"]), str(draft["name"]),
+        int(draft["strength"]), str(draft["name"]), allow_all=True,
     )
 
 
@@ -107,12 +103,6 @@ class DinamicaDraftNumber(CoordinatorEntity, NumberEntity):
         return super().available and get_original(self.coordinator) is not None
 
     async def async_set_native_value(self, value):
-        if (self.coordinator.selected_recipe_id != TEST_RECIPE_ID
-                or self.coordinator.selected_profile_id != TEST_PROFILE_ID):
-            raise ValueError(
-                "Rezeptwerte sind aktuell nur für Profil 1 / Rezept 233 schreibbar; "
-                "andere Getränke werden mit ihren echten Werten angezeigt"
-            )
         draft = initialize_draft(self.coordinator)
         if not self._attr_native_min_value <= value <= self._attr_native_max_value:
             raise ValueError("Value out of range")
@@ -135,17 +125,9 @@ class DinamicaDraftNumber(CoordinatorEntity, NumberEntity):
             candidate = validate_draft(self.coordinator, draft)
         except ValueError as exc:
             return {"saved_to_machine": False, "warning": str(exc)}
-        if candidate is None:
-            return {
-                "saved_to_machine": False,
-                "profile_id": self.coordinator.selected_profile_id,
-                "recipe_id": self.coordinator.selected_recipe_id,
-                "read_only_values": True,
-                "warning": "Kaffeemenge, Milchdauer und Stärke werden ausgelesen; "
-                           "Speichern dieser Werte bisher nur für Profil 1 / Rezept 233 bestätigt",
-            }
         return {
-            "profile_id": TEST_PROFILE_ID, "recipe_id": TEST_RECIPE_ID,
+            "profile_id": self.coordinator.selected_profile_id,
+            "recipe_id": self.coordinator.selected_recipe_id,
             "original_coffee_ml": candidate.coffee_ml_before,
             "proposed_coffee_ml": candidate.coffee_ml_after,
             "proposed_milk_seconds": candidate.milk_seconds_after,
