@@ -15,7 +15,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import CHAR_UUID, SCAN_INTERVAL
 from .monitor import build_power_on, build_status_request, parse_monitor
 from .recipe_save_probe import make_save_probe, make_profile_select
-from .recipe_name_write import build_name_write, get_test_name
+from .recipe_name_write import build_name_write, get_test_name, split_name_write_chunks
 from .number import initialize_draft
 from .statistics import (
     STATISTICS_RANGES, build_statistics_request,
@@ -255,7 +255,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
             "target": "Sepp / Frei 1 (233)",
             "requested_name": new_name, "packet_hex": None,
             "notifications_after_write": [],
-            "diagnostic_events": [], "diagnostic_version": "0.2.10",
+            "diagnostic_events": [], "diagnostic_version": "0.2.13",
         }
         started = asyncio.get_running_loop().time()
 
@@ -391,17 +391,13 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     await asyncio.sleep(0.6)
                     original_names = await read_names()
                     original = get_test_name(original_names)
-                    # This is a deliberately isolated 03/03 index experiment.
-                    # It could affect the third custom-name slot, currently
-                    # user-configured. Preserve THAT slot's existing icon.
-                    experimental_slot = 2
-                    if len(original_names) != 6:
-                        raise ValueError("Namensliste ist unvollständig")
-                    write_target = original_names[experimental_slot]
+                    # Only fourth custom slot (recipe 233), matching 04/04.
+                    # Preserve its ORIGINAL icon from the fresh 0xAA read.
+                    target_slot = 233 - 230
                     report["previous_name"] = original["name"]
-                    report["icon"] = write_target["icon"]
+                    report["icon"] = original["icon"]
                     report["before_names"] = original_names
-                    report["candidate_write_index_zero_based"] = experimental_slot
+                    report["candidate_write_index_zero_based"] = target_slot
                     # Unconfigured custom slots can have an empty real name.
                     # "Frei 1" is only a Home Assistant display fallback.
                     # Never overwrite an unexpected existing custom name.
@@ -413,7 +409,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     if new_name == original["name"]:
                         raise ValueError("Bitte einen neuen Getränkenamen eingeben")
 
-                    payload = build_name_write(new_name, write_target["icon"])
+                    payload = build_name_write(new_name, original["icon"])
                     report["packet_hex"] = payload.hex(" ").upper()
                     trace(
                         "name_write_prepared",
@@ -429,8 +425,21 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     while not frames.empty():
                         frames.get_nowait()
                     write_started = asyncio.get_running_loop().time()
+                    chunks = split_name_write_chunks(payload)
+                    report["gatt_chunk_lengths"] = [len(chunk) for chunk in chunks]
+                    trace("gatt_write_chunks_prepared", lengths=report["gatt_chunk_lengths"])
                     try:
-                        await client.write_gatt_char(CHAR_UUID, payload, response=True)
+                        for index, chunk in enumerate(chunks):
+                            # Await the ACK before sending the next fragment.
+                            await client.write_gatt_char(
+                                CHAR_UUID, chunk, response=True,
+                            )
+                            trace(
+                                "gatt_chunk_confirmed",
+                                index=index,
+                                size=len(chunk),
+                                raw_hex=chunk.hex(" ").upper(),
+                            )
                     except Exception as exc:
                         trace(
                             "gatt_write_error",
@@ -442,6 +451,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                         duration_ms=round(
                             (asyncio.get_running_loop().time() - write_started) * 1000
                         ),
+                        chunk_count=len(chunks),
                         note="GATT success is not proof that name was saved",
                     )
                     try:
@@ -471,12 +481,13 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     )
                     # The experiment is considered successful ONLY when a
                     # single name slot changes and its icon stays unchanged.
-                    if len(changed_slots) != 1:
+                    if changed_slots != [target_slot]:
                         raise ValueError(
                             "Namensspeicherung nicht bestätigt: "
-                            f"geänderte Slots={changed_slots}; Soll='{new_name}'"
+                            f"geänderte Slots={changed_slots}; erwartet={[target_slot]}; "
+                            f"Soll='{new_name}'"
                         )
-                    changed_index = changed_slots[0]
+                    changed_index = target_slot
                     changed_before = original_names[changed_index]
                     changed_after = updated_names[changed_index]
                     if (changed_after["name"] != new_name
