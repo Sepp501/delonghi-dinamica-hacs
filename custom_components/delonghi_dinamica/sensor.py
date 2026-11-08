@@ -1,5 +1,5 @@
 """Read-only sensors for DeLonghi Dinamica Plus."""
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_MAC, DEFAULT_NAME, DOMAIN
@@ -7,6 +7,18 @@ from .const import CONF_MAC, DEFAULT_NAME, DOMAIN
 # Confirmed against Coffee Link app quantities for the ECAM370.95.
 # The remaining 0xAA entries (CUSTOM 4-6) are not yet identified.
 CONFIRMED_RECIPE_IDS = frozenset({230, 231, 232})
+
+STATISTICS = {
+    "coffee_total": ("Kaffeegetränke gesamt", None),
+    "milk_coffee_total": ("Milchkaffee gesamt", None),
+    "water_liters": ("Wasserverbrauch gesamt", "L"),
+    "descaling_count": ("Entkalkungen gesamt", None),
+    "filter_change_count": ("Filterwechsel gesamt", None),
+    "milk_cleaning_count": ("Milchsystem-Reinigungen gesamt", None),
+    "tea_total": ("Tee gesamt", None),
+    "chocolate_total": ("Schokolade gesamt", None),
+    "cold_milk_total": ("Kalte Milch gesamt", None),
+}
 
 
 def display_profiles(raw_profiles):
@@ -72,6 +84,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
     ):
         entities.append(DinamicaSensor(coordinator, entry, kind, label))
     entities.append(DinamicaSensor(coordinator, entry, "machine_status", "Maschinenstatus"))
+    for key, (label, _unit) in STATISTICS.items():
+        entities.append(DinamicaSensor(coordinator, entry, "statistic", label, key))
     async_add_entities(entities)
 
 
@@ -83,11 +97,11 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
         self._kind = kind
         # Only the 3 selected-value sensors appear on the device page.
         # Historical per-recipe sensors remain active for automations/history.
-        self._attr_entity_registry_visible_default = kind.startswith("selected_")
+        self._attr_entity_registry_visible_default = kind.startswith("selected_") or kind == "statistic"
         self._recipe_key = recipe_key
         self._attr_name = label
         mac = entry.data[CONF_MAC]
-        suffix = (
+        suffix = f"statistics_{recipe_key}" if kind == "statistic" else (
             f"{recipe_key[0]}_{recipe_key[1]}"
             if kind == "recipe" else
             f"{recipe_key[0]}_{recipe_key[1]}_{kind}"
@@ -109,11 +123,14 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
             self._attr_native_unit_of_measurement = "mL"
         elif kind == "selected_milk":
             self._attr_native_unit_of_measurement = "s"
+        elif kind == "statistic":
+            self._attr_native_unit_of_measurement = STATISTICS[recipe_key][1]
+            self._attr_state_class = SensorStateClass.TOTAL_INCREASING
 
     @property
     def name(self):
         """Present live profile/recipe labels without changing entity IDs."""
-        if self._kind in ("profiles", "names", "machine_status") or self._kind.startswith("selected_"):
+        if self._kind in ("profiles", "names", "machine_status", "statistic") or self._kind.startswith("selected_"):
             return self._attr_name
         data = self.coordinator.data or {}
         profile_id, recipe_id = self._recipe_key
@@ -135,6 +152,8 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
             return "names" in data
         if self._kind == "machine_status":
             return data.get("monitor") is not None
+        if self._kind == "statistic":
+            return self._recipe_key in data.get("statistics", {})
         if self._kind.startswith("selected_"):
             profile_id = self.coordinator.selected_profile_id
             recipe_id = self.coordinator.selected_recipe_id
@@ -159,6 +178,8 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
         if self._kind == "machine_status":
             monitor = data.get("monitor")
             return monitor["state"] if monitor else None
+        if self._kind == "statistic":
+            return data.get("statistics", {}).get(self._recipe_key)
         if self._kind.startswith("selected_"):
             profile_id = self.coordinator.selected_profile_id
             recipe_id = self.coordinator.selected_recipe_id
@@ -180,6 +201,8 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
             return {"profiles": display_profiles(data.get("profiles", {}))}
         if self._kind == "machine_status":
             return dict(data.get("monitor") or {})
+        if self._kind == "statistic":
+            return {"source": "DeLonghi A2 statistics"}
         if self._kind == "names":
             return {
                 "entries": data.get("names", []),
