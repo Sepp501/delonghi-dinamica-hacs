@@ -7,7 +7,7 @@ from homeassistant.helpers import entity_registry as er
 from .const import CONF_MAC, DOMAIN
 from .coordinator import DinamicaCoordinator
 
-PLATFORMS = ["sensor", "select", "binary_sensor", "button"]
+PLATFORMS = ["sensor", "select", "binary_sensor", "button", "number"]
 
 
 
