@@ -337,10 +337,13 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     original = get_test_name(original_names)
                     report["previous_name"] = original["name"]
                     report["icon"] = original["icon"]
-                    if original["name"] != "Frei 1":
+                    # Unconfigured custom slots can have an empty real name.
+                    # "Frei 1" is only a Home Assistant display fallback.
+                    # Never overwrite an unexpected existing custom name.
+                    if original["name"] not in ("", "Frei 1", "CUSTOM 4"):
                         raise ValueError(
-                            "Abbruch: erwarteter Originalname 'Frei 1', "
-                            f"Maschine meldet '{original['name']}'"
+                            "Abbruch: unerwarteter gespeicherter Name im Zielslot: "
+                            f"'{original['name']}'"
                         )
                     if new_name == original["name"]:
                         raise ValueError("Bitte einen neuen Getränkenamen eingeben")
