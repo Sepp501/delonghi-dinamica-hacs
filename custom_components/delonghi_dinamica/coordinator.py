@@ -8,7 +8,7 @@ import time
 from datetime import timedelta
 
 from bleak import BleakClient, BleakError
-from bleak_retry_connector import establish_connection, BleakClientWithServiceCache
+from bleak_retry_connector import establish_connection
 from homeassistant.components import bluetooth
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -622,116 +622,6 @@ class DinamicaCoordinator(DataUpdateCoordinator):
             trace("finished", verified=report.get("verified", False))
             self.async_update_listeners()
 
-
-    async def async_diagnose_ble_cache_mtu(self):
-        """Manual transport-only diagnostic: no subscriptions or machine commands.
-
-        A cached and an uncached connection are compared. Both are disconnected
-        before returning. The reported MTU is backend-provided and is not proof
-        of the negotiated ATT MTU when the proxy reports its default.
-        """
-        report = {
-            "result": "BLE-Transportdiagnose läuft",
-            "verified": False,
-            "writes_recipe_or_name": False,
-            "commands_sent_to_machine": 0,
-            "indications_enabled": False,
-            "steps": [],
-            "diagnostic_version": "0.2.12",
-            "mtu_negotiation_verified": False,
-        }
-        self.last_ble_diagnostic = report
-        self.async_update_listeners()
-
-        def record(stage, **details):
-            event = {"stage": stage, **details}
-            report["steps"].append(event)
-            _LOGGER.warning("DELONGHI BLE MTU DIAG %s", event)
-
-        try:
-            async with self._ble_lock:
-                device = bluetooth.async_ble_device_from_address(
-                    self.hass, self.mac, connectable=True,
-                )
-                if device is None:
-                    raise BleakError("Kaffeemaschine nicht über HA Bluetooth erreichbar")
-
-                cached_client = await establish_connection(
-                    client_class=BleakClientWithServiceCache,
-                    device=device,
-                    name="DeLonghi Dinamica Plus MTU cache diagnostic",
-                    max_attempts=3,
-                )
-                try:
-                    report["mtu_initial"] = cached_client.mtu_size
-                    record(
-                        "initial_connection",
-                        mtu_reported=report["mtu_initial"],
-                        backend_type=type(cached_client).__name__,
-                    )
-                    clear = getattr(cached_client, "clear_cache", None)
-                    if clear is None:
-                        raise RuntimeError("Cache-Löschfunktion nicht verfügbar")
-                    cleared = await clear()
-                    report["cache_clear_result"] = bool(cleared)
-                    record("cache_clear", success=bool(cleared))
-                    if not cleared:
-                        raise RuntimeError("Bluetooth-Cache konnte nicht gelöscht werden")
-                finally:
-                    await cached_client.disconnect()
-
-                # Reconnect with the remote services-cache hint explicitly off.
-                # Do not enable indications: the previous probe failed with
-                # GATT error 133 on CCCD handle 17 during start_notify.
-                await asyncio.sleep(0.5)
-                fresh_device = bluetooth.async_ble_device_from_address(
-                    self.hass, self.mac, connectable=True,
-                )
-                if fresh_device is None:
-                    raise BleakError("Kaffeemaschine für Neuverbindung nicht gefunden")
-                fresh_client = await establish_connection(
-                    client_class=BleakClientWithServiceCache,
-                    device=fresh_device,
-                    name="DeLonghi Dinamica Plus MTU uncached",
-                    max_attempts=3,
-                    use_services_cache=False,
-                )
-                try:
-                    report["mtu_fresh"] = fresh_client.mtu_size
-                    services = fresh_client.services
-                    report["service_count"] = len(services.services)
-                    char = services.get_characteristic(CHAR_UUID)
-                    report["characteristic_found"] = char is not None
-                    if char is None:
-                        raise RuntimeError("DeLonghi-GATT-Charakteristik nicht gefunden")
-                    report["characteristic_properties"] = list(char.properties)
-                    report["max_write_without_response"] = char.max_write_without_response_size
-                    report["characteristic_handle"] = char.handle
-                    report["descriptor_handles"] = [item.handle for item in char.descriptors]
-                    record(
-                        "uncached_connection",
-                        mtu_reported=report["mtu_fresh"],
-                        service_count=report["service_count"],
-                        characteristic_handle=report["characteristic_handle"],
-                        descriptor_handles=report["descriptor_handles"],
-                    )
-                    report["result"] = "BLE-Transportdiagnose abgeschlossen"
-                    report["verified"] = True
-                    record(
-                        "finished",
-                        note="MTU ist Backend-Rückmeldung, nicht zwingend ausgehandelte ATT-MTU",
-                        indications_attempted=False,
-                        machine_commands=0,
-                    )
-                finally:
-                    await fresh_client.disconnect()
-        except Exception as exc:
-            report["result"] = "BLE-Transportdiagnose fehlgeschlagen"
-            report["detail"] = str(exc)
-            record("failed", error_type=type(exc).__name__, error=str(exc))
-            raise
-        finally:
-            self.async_update_listeners()
 
     async def _async_poll_data(self):
         device = bluetooth.async_ble_device_from_address(
