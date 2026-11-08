@@ -1,7 +1,6 @@
-"""Read-only Dinamica polling through Home Assistant Bluetooth.
+"""DeLonghi Dinamica read and explicitly triggered Save via HA Bluetooth proxy.
 
-Development preview: do not enable alongside another active BLE client for
-this coffee machine. No brewing or configuration writes are performed.
+Six custom recipes are shared by the machine across displayed profiles.
 """
 import asyncio
 import logging
@@ -44,7 +43,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
         self.selected_recipe_id = 230
 
     async def _async_update_data(self):
-        """Fast status polling without repeating eighteen recipe reads."""
+        """Fast status polling without repeating all six recipe reads."""
         # Protect the ESPHome connection against overlapping writes and polls.
         async with self._ble_lock:
             if self.data is None or time.monotonic() - self._last_detail_refresh >= DETAIL_INTERVAL:
@@ -142,7 +141,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
         draft = dict(initialize_draft(self))
         recipe_id = self.selected_recipe_id
         original = ((self.data or {}).get("recipes", {})
-                    .get(self.selected_profile_id, {}).get(recipe_id))
+                    .get(1, {}).get(recipe_id))
         if original is None:
             raise ValueError("Ausgewähltes Rezept nicht verfügbar")
         if not 230 <= recipe_id <= 235:
@@ -173,7 +172,8 @@ class DinamicaCoordinator(DataUpdateCoordinator):
     async def async_experimental_save_test_coffee(self):
         """Explicit single-slot experimental value Save, verified via A6."""
         draft = dict(initialize_draft(self))
-        profile_id = self.selected_profile_id
+        # The shared recipe bank uses the canonical profile-1 readback.
+        profile_id = 1
         recipe_id = self.selected_recipe_id
         probe_details = {
             "notifications_after_save": [], "packet_hex": None,
@@ -858,20 +858,20 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     except (TimeoutError, ValueError) as exc:
                         _LOGGER.warning("Drink name read failed: %s", exc)
 
-                    for profile in (1, 2, 3):
-                        result["recipes"][profile] = {}
-                        for recipe_id in range(230, 236):
-                            try:
-                                packet = await request(
-                                    client, recipe_request(profile, recipe_id),
-                                    0xA6, profile, recipe_id,
-                                )
-                                result["recipes"][profile][recipe_id] = parse_recipe(packet)
-                            except (TimeoutError, ValueError) as exc:
-                                _LOGGER.warning(
-                                    "Recipe %s / profile %s unavailable: %s",
-                                    recipe_id, profile, exc,
-                                )
+                    # Six shared drinks: do not read redundant profile copies.
+                    # Keep profile 1 as canonical internal key for existing data.
+                    result["recipes"][1] = {}
+                    for recipe_id in range(230, 236):
+                        try:
+                            packet = await request(
+                                client, recipe_request(1, recipe_id),
+                                0xA6, 1, recipe_id,
+                            )
+                            result["recipes"][1][recipe_id] = parse_recipe(packet)
+                        except (TimeoutError, ValueError) as exc:
+                            _LOGGER.warning(
+                                "Shared recipe %s unavailable: %s", recipe_id, exc,
+                            )
                 finally:
                     try:
                         await client.stop_notify(CHAR_UUID)
