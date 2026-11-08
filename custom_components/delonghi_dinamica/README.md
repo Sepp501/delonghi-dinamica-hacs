@@ -1,26 +1,9 @@
-# DeLonghi Dinamica Plus — experimental HA integration v0.1
+# DeLonghi Dinamica Plus — Home Assistant BLE integration
 
-This is a **read-only developer preview**, not a replacement for the working Arbuzov BLE integration.
+This component belongs to the public repository [Sepp501/delonghi-dinamica-hacs](https://github.com/Sepp501/delonghi-dinamica-hacs).
 
-## Included
-- Manual setup by Bluetooth MAC address.
-- HA Bluetooth API (including supported Bluetooth proxies), Bleak connection.
-- Profile names (0xA4), custom drink names (0xAA), recipes (0xA6).
-- 20 sensors: profile count, name count, and 18 coffee-volume sensors with milk seconds and strength as attributes.
-- Polling every 120 seconds. No beverage start, no write/change commands beyond read requests.
+Current implementation supports local BLE status, power-on, warnings, statistics, six shared configurable drinks, name changes and readback-verified recipe-value saving on the **ECAM 370.95.T**. It uses a 15-second status poll and a 120-second full refresh, and works with an ESPHome Bluetooth proxy.
 
-## Important limits
-- **Not live-tested inside HA.** BLE proxy transport and coexistence with the existing integration are unverified.
-- Do **not** configure both integrations for the same machine at the same time. Both may compete for a BLE connection. Keep the existing integration installed, but disable its config entry during an agreed test window.
-- A failed initial BLE read prevents setup and is retried by HA.
-- No status sensors or controls yet; their exact code must be imported/reviewed from the reference integration.
-- Names cannot yet be confidently assigned to recipe IDs or profiles.
-- Recipe values are presently identical across profiles; profile-specificity is not established.
-- Guest profile is not queried.
-- The HA device registry and discovery enhancements are planned for later versions.
+**No beverage-start, stop or power-off commands are exposed.** Only one BLE client should access the machine at a time.
 
-## Installation (later, during a test window)
-Copy `custom_components/delonghi_dinamica` into HA's `/config/custom_components/`, restart HA, add integration 'DeLonghi Dinamica Plus (Development)', enter machine MAC.
-
-## Development
-The protocol module is intentionally self-contained. Preserve existing Windows test scripts and your current HA installation. Validate integration first in a test environment if possible.
+For installation, exact capabilities, cautions, source attribution and licensing, read the [repository README](../../README.md), [third-party notices](../../THIRD_PARTY_NOTICES.md), and [Apache-2.0 license](../../LICENSE).
