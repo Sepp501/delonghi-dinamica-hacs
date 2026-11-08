@@ -1,7 +1,36 @@
 """Read-only sensors for DeLonghi Dinamica Plus."""
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
 from .const import CONF_MAC, DEFAULT_NAME, DOMAIN
+
+# Confirmed against Coffee Link app quantities for the ECAM370.95.
+# The remaining 0xAA entries (CUSTOM 4-6) are not yet identified.
+CONFIRMED_RECIPE_IDS = frozenset({230, 231, 232})
+
+
+def display_profiles(raw_profiles):
+    """Keep regular profile names but normalize the guest slot."""
+    profiles = dict(raw_profiles)
+    if 4 in profiles:
+        # Profile 4 is the guest account on this machine. The BLE name
+        # bytes are not a regular user name and can decode as garbage.
+        profiles[4] = "Gast"
+    return profiles
+
+
+def display_drink_name(names, recipe_id):
+    """Get a confirmed drink name from the current 0xAA name response."""
+    if recipe_id not in CONFIRMED_RECIPE_IDS:
+        return None
+    index = recipe_id - 230
+    if index >= len(names):
+        return None
+    entry = names[index]
+    if not isinstance(entry, dict):
+        return None
+    name = entry.get("name")
+    return name.strip() if isinstance(name, str) and name.strip() else None
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -32,6 +61,7 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
         self._attr_name = label
         mac = entry.data[CONF_MAC]
         suffix = f"{recipe_key[0]}_{recipe_key[1]}" if recipe_key else kind
+        # Never change existing unique IDs: dashboards and automations depend on them.
         self._attr_unique_id = f"{mac}_{suffix}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, mac)},
@@ -41,6 +71,19 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
         }
         if kind == "recipe":
             self._attr_native_unit_of_measurement = "mL"
+
+    @property
+    def name(self):
+        """Present live profile/recipe labels without changing entity IDs."""
+        if self._kind != "recipe":
+            return self._attr_name
+        data = self.coordinator.data or {}
+        profile_id, recipe_id = self._recipe_key
+        profile = display_profiles(data.get("profiles", {})).get(
+            profile_id, f"Profil {profile_id}"
+        )
+        drink = display_drink_name(data.get("names", []), recipe_id)
+        return f"{profile} {drink or f'Rezept {recipe_id}'} Kaffee"
 
     @property
     def available(self):
@@ -70,17 +113,22 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
     def extra_state_attributes(self):
         data = self.coordinator.data or {}
         if self._kind == "profiles":
-            return {"profiles": data.get("profiles", {})}
+            return {"profiles": display_profiles(data.get("profiles", {}))}
         if self._kind == "names":
             return {
                 "entries": data.get("names", []),
                 "profile_mapping_confirmed": False,
+                "confirmed_recipe_ids": sorted(CONFIRMED_RECIPE_IDS),
             }
         profile_id, recipe_id = self._recipe_key
         recipe = data.get("recipes", {}).get(profile_id, {}).get(recipe_id)
         return {
             "profile_id": profile_id,
+            "profile_name": display_profiles(data.get("profiles", {})).get(
+                profile_id, f"Profil {profile_id}"
+            ),
             "recipe_id": recipe_id,
+            "drink_name": display_drink_name(data.get("names", []), recipe_id),
             "milk_seconds": recipe.milk_seconds if recipe else None,
             "strength": recipe.strength if recipe else None,
         }
