@@ -34,11 +34,6 @@ def make_save_probe(original, draft: dict) -> bytes:
     )
     if original.profile_id != TEST_PROFILE_ID or original.recipe_id != TEST_RECIPE_ID:
         raise ValueError("Test limited to Sepp / Frei 1")
-    if proposed.name_after != "Frei 1":
-        raise ValueError(
-            "Name kann noch nicht gespeichert werden: bitte 'Frei 1' eintragen. "
-            "Befehl 0xAB noch nicht verifiziert."
-        )
     if (
         proposed.coffee_ml_after == original.coffee_ml
         and proposed.milk_seconds_after == (original.milk_seconds or 0.0)
