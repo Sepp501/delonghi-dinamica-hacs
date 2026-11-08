@@ -35,8 +35,10 @@ class CoffeeRecipeDraft:
 def _valid_name(name: str) -> str:
     if not isinstance(name, str):
         raise ValueError("Recipe name must be text")
+    if any(ord(ch) < 32 for ch in name):
+        raise ValueError("Recipe name contains control characters")
     name = name.strip()
-    if not name or len(name) > 10 or any(ord(ch) < 32 for ch in name):
+    if not name or len(name) > 10:
         raise ValueError("Recipe name must be 1 to 10 printable characters")
     # 0xAA name responses are UTF-16BE in 20 bytes.
     if len(name.encode("utf-16-be")) > 20:
