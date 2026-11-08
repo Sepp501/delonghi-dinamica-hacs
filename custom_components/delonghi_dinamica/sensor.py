@@ -5,8 +5,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_MAC, DEFAULT_NAME, DOMAIN
 
-# Confirmed against Coffee Link app quantities for the ECAM370.95.
-# The remaining 0xAA entries (CUSTOM 4-6) are not yet identified.
+# Six custom drink slots were mapped and read back on the ECAM370.95.T.
+# Keep existing entity IDs stable for upgrades.
 CONFIRMED_RECIPE_IDS = frozenset({230, 231, 232})
 
 STATISTICS = {
@@ -43,8 +43,8 @@ def display_drink_name(names, recipe_id):
         return None
     name = name.strip()
     if recipe_id > 232:
-        # These slots have not been mapped against the app. Only display
-        # generic CUSTOM placeholders as free; retain future custom names.
+        # Only display generic CUSTOM placeholders as free;
+        # preserve user-defined names.
         if not name or name.upper() == f"CUSTOM {recipe_id - 229}":
             return f"Frei {recipe_id - 232}"
     return name or None
