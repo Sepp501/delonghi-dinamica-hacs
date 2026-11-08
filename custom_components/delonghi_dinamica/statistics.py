@@ -13,7 +13,7 @@ def parse_statistics_response(packet: bytes, expected_start: int) -> dict[int, i
     """Validate framing, CRC and first counter before decoding the sparse records."""
     if len(packet) < 12 or packet[0] != 0xD0 or packet[1] + 1 != len(packet):
         raise ValueError("Invalid 0xA2 frame")
-    if packet[2:4] != bytes((0xA2, 0x0F)):
+    if packet[2] != 0xA2 or packet[3] not in (0x0F, 0xF0):
         raise ValueError("Not a statistics response")
     if binascii.crc_hqx(packet[:-2], 0x1D0F) != int.from_bytes(packet[-2:], "big"):
         raise ValueError("Invalid 0xA2 CRC")
