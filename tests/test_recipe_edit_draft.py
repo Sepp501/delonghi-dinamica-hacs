@@ -39,7 +39,7 @@ class CoffeeDraftTests(unittest.TestCase):
                          ((0x01, 150), (0x09, 225), (0x02, 5), (0x0C, 0), (0x19, 1)))
 
     def test_rejects_bad_name_and_milk_values(self):
-        for name in ("", "muchtoolongrecipe", "bad\\nname"):
+        for name in ("", "muchtoolongrecipe", "bad" + chr(10) + "name"):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 module.plan_test_recipe(sample(), 150, 0, 3, name)
         for milk in (-1, 90.1, 1.55, True):
