@@ -98,9 +98,11 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
         # Lifetime counters, raw data and background recipe data are diagnostics.
         if kind in ("profiles", "names", "recipe", "milk", "strength", "statistic", "statistics_raw"):
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        # Only the 3 selected-value sensors appear on the device page.
-        # Historical per-recipe sensors remain active for automations/history.
-        self._attr_entity_registry_visible_default = kind.startswith("selected_") or kind == "statistic"
+        # Retain selected-value entities as disabled legacy entities so they
+        # cannot duplicate the editable values in the Configuration section.
+        # Per-recipe sensors remain available in Diagnostics / for automations.
+        self._attr_entity_registry_enabled_default = not kind.startswith("selected_")
+        self._attr_entity_registry_visible_default = kind == "statistic"
         self._recipe_key = recipe_key
         self._attr_name = label
         mac = entry.data[CONF_MAC]
