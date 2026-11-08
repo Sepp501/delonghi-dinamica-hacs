@@ -3,9 +3,19 @@
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Custom%20Integration-41BDF5?logo=homeassistant)](https://www.home-assistant.io/)
 [![HACS](https://img.shields.io/badge/HACS-Custom%20Repository-blue)](https://www.hacs.xyz/)
 
-**Unofficial local Bluetooth Low Energy integration** for the **De'Longhi Dinamica Plus ECAM 370.95.T**.
+**Unofficial local Bluetooth Low Energy integration** developed specifically for the **De'Longhi Dinamica Plus ECAM 370.95 model series**.
 
-The integration was developed and tested on the ECAM 370.95.T with Home Assistant and an **ESPHome Bluetooth proxy**. It communicates with the coffee machine locally; no De'Longhi cloud account is required. Compatibility with other ECAM models has **not** been established.
+## Supported models
+
+| Model | Status |
+| --- | --- |
+| **ECAM 370.95.T** | **Tested and supported** on real hardware with Home Assistant and an ESPHome Bluetooth proxy |
+| **Other ECAM 370.95 variants** | Intended model series; **not individually tested** — compatibility is not guaranteed |
+| **Other Dinamica, PrimaDonna, Eletta or unrelated ECAM series** | **Not supported**; protocol and features may differ |
+
+**Project scope:** This integration is intentionally limited to the **ECAM 370.95 series**, not a universal De'Longhi integration. Please report results for other variants within the 370.95 series; do not assume they behave identically to the tested 370.95.T.
+
+It communicates with the coffee machine locally; no De'Longhi cloud account is required.
 
 ![Integration icon](custom_components/delonghi_dinamica/brand/icon.png)
 
@@ -63,7 +73,7 @@ Read requests and writes are coordinated to avoid overlapping GATT operations. D
 
 ## Current limitations and cautions
 
-- **Tested hardware:** ECAM 370.95.T only. Other devices may use different protocol fields or semantics.
+- **Model scope:** only the ECAM 370.95 model series is targeted; the ECAM 370.95.T is the sole hardware-verified variant. Other models may use different protocol fields or semantics.
 - **No beverage start**, **no stop**, and **no power-off** control.
 - Saving recipe values is a powerful, model-specific operation. Use cautiously, check the results on the machine and retain any original values you want to restore.
 - A failed or interrupted BLE connection may delay updates. After a restart, allow the proxy and integration to reconnect before saving changes.
