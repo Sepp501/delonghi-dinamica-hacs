@@ -66,6 +66,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             obsolete_id = registry.async_get_entity_id(domain, DOMAIN, unique_id)
             if obsolete_id is not None:
                 registry.async_remove(obsolete_id)
+        # Existing entity registry entries can retain their old DIAGNOSTIC
+        # category after the entity implementation changes. Explicitly move
+        # the two descale readings, coffee/milk totals, tank/grounds and
+        # water consumption into the normal Sensors section.
+        ordinary_sensors = (
+            ("binary_sensor", "monitor_descale_needed"),
+            ("binary_sensor", "monitor_grounds_full"),
+            ("binary_sensor", "monitor_water_empty"),
+            ("sensor", "statistics_descaling_count"),
+            ("sensor", "statistics_coffee_total"),
+            ("sensor", "statistics_milk_coffee_total"),
+            ("sensor", "statistics_water_liters"),
+        )
+        for entity_domain, suffix in ordinary_sensors:
+            entity_id = registry.async_get_entity_id(
+                entity_domain, DOMAIN, f"{entry.data[CONF_MAC]}_{suffix}"
+            )
+            if entity_id is not None:
+                registered = registry.async_get(entity_id)
+                if registered is not None and registered.entity_category is not None:
+                    registry.async_update_entity(entity_id, entity_category=None)
         # Retire duplicate profile-2/3 recipe entities without deleting
         # their registry IDs or recorded history (safer for old references).
         for profile_id in (2, 3):
