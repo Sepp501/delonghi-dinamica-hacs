@@ -65,12 +65,47 @@ class DinamicaCoordinator(DataUpdateCoordinator):
         # A successful write does not imply the machine is already ready.
         await self.async_request_refresh()
 
-    async def async_experimental_save_test_coffee(self):
-        """Explicit user-triggered, single-slot experimental Save, verified via A6.
+    async def async_save_selected_recipe(self):
+        """One explicit Save button; validate all edits before any BLE writes.
 
-        This updates only coffee amount, milk seconds and strength.
-        The name-write format 0xAB is not known and MUST NOT be sent.
+        Name writing is available for all six custom slots; recipe parameters
+        remain limited to the already tested profile-1 recipe 233 path.
         """
+        draft = dict(initialize_draft(self))
+        recipe_id = self.selected_recipe_id
+        original = ((self.data or {}).get("recipes", {}).get(1, {})
+                    .get(recipe_id))
+        if original is None:
+            raise ValueError("Ausgewähltes Rezept nicht verfügbar")
+        if not 230 <= recipe_id <= 235:
+            raise ValueError("Nur sechs benutzerdefinierte Getränke erlaubt")
+        from .recipe_edit_draft import _valid_name
+        _valid_name(draft["name"])
+        recipe_changed = (
+            int(draft["coffee"]) != original.coffee_ml
+            or float(draft["milk"]) != (original.milk_seconds or 0)
+            or int(draft["strength"]) != original.strength
+        )
+        name_changed = draft["name"] != draft["name_initial"]
+        if not name_changed and not recipe_changed:
+            raise ValueError("Keine Änderungen zum Speichern vorhanden")
+        if recipe_changed and recipe_id != 233:
+            raise ValueError("Rezeptwerte nur für Rezept 233 freigegeben; Name ist separat editierbar")
+        if recipe_changed:
+            await self.async_experimental_save_test_coffee()
+        if name_changed:
+            await self.async_experimental_save_test_name()
+        self.last_save_result = {
+            "result": "Ausgewählte Änderungen überprüft und gespeichert",
+            "verified": True, "recipe_id": recipe_id,
+            "recipe_values_written": recipe_changed,
+            "name_written": name_changed,
+            "requested_name": draft["name"],
+        }
+        self.async_update_listeners()
+
+    async def async_experimental_save_test_coffee(self):
+        """Explicit single-slot experimental value Save, verified via A6."""
         draft = dict(initialize_draft(self))
         probe_details = {
             "notifications_after_save": [], "packet_hex": None,
@@ -243,16 +278,16 @@ class DinamicaCoordinator(DataUpdateCoordinator):
             self.async_update_listeners()
 
     async def async_experimental_save_test_name(self):
-        """Manually save only the name of Sepp/Frei 1 with APK-derived 0xAB.
-
-        Preserve the icon from a fresh 0xAA read, and accept success ONLY
-        after a second 0xAA read gives exactly the requested name.
-        """
+        """Save selected custom-slot name via 20+9 GATT chunks and verify 0xAA."""
         draft = dict(initialize_draft(self))
+        recipe_id = self.selected_recipe_id
+        if recipe_id not in range(230, 236):
+            raise ValueError("Unzulässiger Namensslot")
+        target_slot = recipe_id - 230
         new_name = str(draft["name"])
         report = {
             "result": "Namens-Test läuft", "verified": False,
-            "target": "Sepp / Frei 1 (233)",
+            "target": f"Rezept {recipe_id}",
             "requested_name": new_name, "packet_hex": None,
             "notifications_after_write": [],
             "diagnostic_events": [], "diagnostic_version": "0.2.13",
@@ -272,7 +307,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                 report["diagnostic_truncated"] = True
             _LOGGER.warning("NAME SAVE DIAG %s", event)
 
-        trace("start", target_recipe_id=233, requested_name=new_name)
+        trace("start", target_recipe_id=recipe_id, requested_name=new_name)
         self.last_name_save_result = report
         self.async_update_listeners()
         try:
@@ -390,26 +425,19 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     )
                     await asyncio.sleep(0.6)
                     original_names = await read_names()
-                    original = get_test_name(original_names)
-                    # Only fourth custom slot (recipe 233), matching 04/04.
-                    # Preserve its ORIGINAL icon from the fresh 0xAA read.
-                    target_slot = 233 - 230
+                    original = get_test_name(original_names, recipe_id)
+                    # Preserve icon of EXACT selected slot from fresh 0xAA read.
                     report["previous_name"] = original["name"]
                     report["icon"] = original["icon"]
                     report["before_names"] = original_names
                     report["candidate_write_index_zero_based"] = target_slot
-                    # Unconfigured custom slots can have an empty real name.
-                    # "Frei 1" is only a Home Assistant display fallback.
-                    # Never overwrite an unexpected existing custom name.
-                    if original["name"] not in ("", "Frei 1", "CUSTOM 4"):
-                        raise ValueError(
-                            "Abbruch: unerwarteter gespeicherter Name im Zielslot: "
-                            f"'{original['name']}'"
-                        )
+                    # Guard against stale draft overwriting a name edited elsewhere.
+                    if original["name"] != draft["raw_name_initial"]:
+                        raise ValueError("Der Name wurde zwischenzeitlich geändert; bitte Getränk neu auswählen")
                     if new_name == original["name"]:
                         raise ValueError("Bitte einen neuen Getränkenamen eingeben")
 
-                    payload = build_name_write(new_name, original["icon"])
+                    payload = build_name_write(new_name, original["icon"], recipe_id=recipe_id)
                     report["packet_hex"] = payload.hex(" ").upper()
                     trace(
                         "name_write_prepared",
@@ -419,8 +447,8 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                         address_bytes=payload[4:6].hex(" ").upper(),
                     )
                     _LOGGER.warning(
-                        "EXPERIMENTAL 0xAB NAME WRITE Sepp/Frei1: %s",
-                        report["packet_hex"],
+                        "0xAB NAME WRITE recipe=%d: %s",
+                        recipe_id, report["packet_hex"],
                     )
                     while not frames.empty():
                         frames.get_nowait()
@@ -464,7 +492,7 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                         pass
                     await asyncio.sleep(0.7)
                     updated_names = await read_names()
-                    new = get_test_name(updated_names)
+                    new = get_test_name(updated_names, recipe_id)
                     report["after_names"] = updated_names
                     report["actual_name"] = new["name"]
                     report["actual_icon"] = new["icon"]
@@ -499,6 +527,9 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     report["verified"] = True
                     report["actual_changed_slot_zero_based"] = changed_index
                     report["result"] = "Getränkename per 0xAA in Slot bestätigt"
+                    draft_live = initialize_draft(self)
+                    draft_live["name_initial"] = new_name
+                    draft_live["raw_name_initial"] = new_name
                     trace("verified", slot=changed_index)
                 finally:
                     try:
