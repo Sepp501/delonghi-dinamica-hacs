@@ -1,5 +1,6 @@
 """Read-only sensors for DeLonghi Dinamica Plus."""
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_MAC, DEFAULT_NAME, DOMAIN
@@ -93,6 +94,10 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, entry, kind, label, recipe_key=None):
         super().__init__(coordinator)
         self._kind = kind
+        # Keep live controls and selected drink values in the main device view.
+        # Lifetime counters, raw data and background recipe data are diagnostics.
+        if kind in ("profiles", "names", "recipe", "milk", "strength", "statistic", "statistics_raw"):
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
         # Only the 3 selected-value sensors appear on the device page.
         # Historical per-recipe sensors remain active for automations/history.
         self._attr_entity_registry_visible_default = kind.startswith("selected_") or kind == "statistic"
