@@ -25,7 +25,7 @@ def build_name_write(name: str, icon: int, profile_id: int = 1,
     utf16 = name.encode("utf-16-be")
     if len(utf16) > 20:
         raise ValueError("Name überschreitet zehn UTF-16-Codeeinheiten")
-    padded = utf16.ljust(20, b"\\x00")
+    padded = utf16.ljust(20, b"\x00")
     # Standard 29 bytes: 0D 1C AB F0 04 04 [name:20] [icon:1] [CRC:2].
     body = bytes((0xAB, 0xF0, slot, slot)) + padded + bytes((icon,))
     prefix = bytes((0x0D, len(body) + 3)) + body
