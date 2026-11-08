@@ -67,11 +67,17 @@ class DinamicaCoordinator(DataUpdateCoordinator):
     async def async_experimental_save_test_coffee(self):
         """Explicit user-triggered, single-slot experimental Save, verified via A6.
 
-        This does NOT update the recipe name or the milk/aroma fields.
-        The candidate 0x83 Save mode on this ECAM revision is not yet proven.
+        This updates only coffee amount, milk seconds and strength.
+        The name-write format 0xAB is not known and MUST NOT be sent.
         """
         draft = dict(initialize_draft(self))
-        probe_details = {"notifications_after_save": [], "packet_hex": None, "before_ml": None, "after_ml": None}
+        probe_details = {
+            "notifications_after_save": [], "packet_hex": None,
+            "before_ml": None, "after_ml": None,
+            "before_milk_seconds": None, "after_milk_seconds": None,
+            "before_strength": None, "after_strength": None,
+            "name_saved": False,
+        }
         self.last_save_result = {
             "result": "In Bearbeitung", "target": "Sepp / Frei 1",
             "requested_coffee_ml": draft["coffee"], "verified": False,
@@ -158,6 +164,8 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                     ))
                     payload = make_save_probe(before, draft)
                     probe_details["before_ml"] = before.coffee_ml
+                    probe_details["before_milk_seconds"] = before.milk_seconds
+                    probe_details["before_strength"] = before.strength
                     probe_details["packet_hex"] = payload.hex(" ").upper()
 
                     _LOGGER.warning(
@@ -188,22 +196,30 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                         recipe_request(1, 233), 0xA6, timeout=10
                     ))
                     probe_details["after_ml"] = after.coffee_ml
+                    probe_details["after_milk_seconds"] = after.milk_seconds
+                    probe_details["after_strength"] = after.strength
+                    requested_milk = float(draft["milk"])
+                    milk_ok = (
+                        (after.milk_seconds is None and requested_milk == 0)
+                        or after.milk_seconds == requested_milk
+                    )
                     if (
                         after.coffee_ml != int(draft["coffee"])
-                        or after.milk_seconds != before.milk_seconds
-                        or after.strength != before.strength
+                        or not milk_ok
+                        or after.strength != int(draft["strength"])
                     ):
                         raise ValueError(
-                            "Speicherung nicht bestätigt: vorher=%s ml, danach=%s ml, "
-                            "Soll=%s ml; Milch/Stärke müssen unverändert bleiben" %
-                            (before.coffee_ml, after.coffee_ml, draft["coffee"])
+                            "Speicherung nicht vollständig bestätigt: Soll=%s ml / %s s / Stärke %s; "
+                            "Ist=%s ml / %s s / Stärke %s" %
+                            (draft["coffee"], draft["milk"], draft["strength"],
+                             after.coffee_ml, after.milk_seconds, after.strength)
                         )
                     self.last_save_result = {
-                        "result": "Kaffeemenge per A6 bestätigt",
+                        "result": "Kaffee, Milchdauer und Stärke per A6 bestätigt",
                         "target": "Sepp / Frei 1", "before_ml": before.coffee_ml,
                         "after_ml": after.coffee_ml, "verified": True,
-                        "name_saved": False, "milk_saved": False,
-                        "strength_saved": False,
+                        "name_saved": False, "milk_saved": True,
+                        "strength_saved": True,
                         **probe_details,
                     }
                     self.recipe_draft["pending"] = False
