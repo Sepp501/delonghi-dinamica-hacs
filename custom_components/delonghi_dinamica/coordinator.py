@@ -560,8 +560,13 @@ class DinamicaCoordinator(DataUpdateCoordinator):
                 )
                 if fresh_device is None:
                     raise BleakError("Kaffeemaschine für erneute Verbindung nicht gefunden")
-                client = BleakClient(fresh_device)
-                await client.connect(dangerous_use_bleak_cache=False)
+                client = await establish_connection(
+                    client_class=BleakClientWithServiceCache,
+                    device=fresh_device,
+                    name="DeLonghi Dinamica Plus MTU uncached",
+                    max_attempts=3,
+                    use_services_cache=False,
+                )
                 try:
                     report["mtu_fresh"] = client.mtu_size
                     report["service_count"] = len(client.services.services)
