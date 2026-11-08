@@ -44,6 +44,14 @@ class NameWriteTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 names.split_name_write_chunks(bad)
 
+    def test_all_six_recipe_addresses(self):
+        for recipe_id in range(230, 236):
+            with self.subTest(recipe_id=recipe_id):
+                packet = names.build_name_write("TEST", icon=0, recipe_id=recipe_id)
+                slot = recipe_id - 229
+                self.assertEqual(packet[4:6], bytes((slot, slot)))
+                self.assertEqual([len(chunk) for chunk in names.split_name_write_chunks(packet)], [20, 9])
+
     def test_short_name_null_padding(self):
         p = names.build_name_write("NEU", icon=2)
         self.assertEqual(p[6:12], "NEU".encode("utf-16-be"))
@@ -56,7 +64,8 @@ class NameWriteTests(unittest.TestCase):
     def test_restrictions(self):
         bad = (
             dict(name="Hallo", icon=0, profile_id=2),
-            dict(name="Hallo", icon=0, recipe_id=232),
+            dict(name="Hallo", icon=0, recipe_id=229),
+            dict(name="Hallo", icon=0, recipe_id=236),
             dict(name="Hallo", icon=-1),
             dict(name="ÜberlangerName", icon=0),
             dict(name="", icon=0),
