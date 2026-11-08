@@ -54,15 +54,36 @@ class SaveProbeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             save.profile_operation(0, save.MODE_SAVE)
 
-    def test_changes_outside_coffee_are_rejected(self):
-        changes = [
-            {"milk": 0}, {"strength": 5}, {"name": "Testkaffee"},
-            {"coffee": 80},
+    def test_milk_and_strength_are_encoded(self):
+        options = dict(coffee=160, milk=23.5, strength=5, name="Frei 1")
+        p = save.make_save_probe(recipe(), options)
+        self.assertEqual(p[2:6], bytes((0x83, 0xF0, 233, 0x01)))
+        self.assertEqual(p[6:-3], bytes.fromhex("01 00 A0 09 00 EB 02 05 0C 00"))
+        self.assertEqual(p[-3], 0x05)
+
+    def test_zero_milk_drops_milk_and_inversion_tags(self):
+        options = dict(coffee=160, milk=0, strength=4, name="Frei 1")
+        p = save.make_save_probe(recipe(), options)
+        self.assertEqual(p[6:-3], bytes.fromhex("01 00 A0 02 04"))
+
+    def test_only_changed_strength_is_accepted(self):
+        options = dict(coffee=80, milk=16, strength=5, name="Frei 1")
+        # Original coffee amount 80 is below UI minimum 100; pass a
+        # normalized 160-mL baseline as done after the verified Save.
+        r = recipe()
+        r.coffee_ml = 160
+        r.parameters = ((1,160), (9,160), (2,3), (12,0), (28,2),(27,4),(25,1))
+        options["coffee"] = 160
+        p = save.make_save_probe(r, options)
+        self.assertEqual(p[6:-3], bytes.fromhex("01 00 A0 09 00 A0 02 05 0C 00"))
+
+    def test_name_change_or_noop_rejected(self):
+        cases = [
+            dict(coffee=100, milk=16, strength=3, name="Testkaffee"),
+            dict(coffee=80, milk=16, strength=3, name="Frei 1"),
         ]
-        for changed in changes:
-            options = dict(coffee=100, milk=16.0, strength=3, name="Frei 1")
-            options.update(changed)
-            with self.subTest(changed=changed), self.assertRaises(ValueError):
+        for options in cases:
+            with self.subTest(options=options), self.assertRaises(ValueError):
                 save.make_save_probe(recipe(), options)
 
     def test_other_slot_rejected(self):
