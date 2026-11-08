@@ -1,4 +1,4 @@
-"""Editable, local-only draft name for the single test recipe."""
+"""Editable local draft name for the selected custom drink slot."""
 from homeassistant.components.text import TextEntity
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -13,7 +13,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 class DinamicaDraftName(CoordinatorEntity, TextEntity):
     _attr_has_entity_name = True
-    _attr_name = "Frei 1 – Getränkename (nur Entwurf)"
+    _attr_name = "Getränkename (Entwurf)"
     _attr_entity_category = EntityCategory.CONFIG
     _attr_native_min = 1
     _attr_native_max = 10
