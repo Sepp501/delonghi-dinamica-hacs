@@ -63,8 +63,10 @@ class DinamicaTestCoffeeAmount(CoordinatorEntity, NumberEntity):
         if original is None:
             raise ValueError("Test recipe Sepp/Frei 1 not available")
         # Validate. No client connection and no BLE commands are invoked.
-        plan_test_coffee(original, value)
-        self._attr_native_value = value
+        if not float(value).is_integer():
+            raise ValueError("Coffee amount must be in full milliliters")
+        plan_test_coffee(original, int(value))
+        self._attr_native_value = int(value)
         self.async_write_ha_state()
 
     @property
