@@ -31,11 +31,11 @@ class DinamicaPowerOn(CoordinatorEntity, ButtonEntity):
 
 
 class DinamicaRecipeSaveUnavailable(CoordinatorEntity, ButtonEntity):
-    """Visible but deliberately unavailable until save + name protocol is verified."""
+    """Manual test for the coffee-quantity-only Save mode. Experimental."""
 
     _attr_has_entity_name = True
-    _attr_name = "Frei 1 – In Maschine speichern (noch gesperrt)"
-    _attr_icon = "mdi:content-save-lock"
+    _attr_name = "Frei 1 – Kaffeemenge testen (experimentell)"
+    _attr_icon = "mdi:content-save-alert"
 
     def __init__(self, coordinator, entry):
         super().__init__(coordinator)
@@ -49,12 +49,24 @@ class DinamicaRecipeSaveUnavailable(CoordinatorEntity, ButtonEntity):
 
     @property
     def available(self):
-        # The 0x83 save-mode data and 0xAB naming format are NOT yet validated
-        # on the user's machine. Do not issue unsafe experimental BLE commands.
-        return False
+        monitor = (self.coordinator.data or {}).get("monitor") or {}
+        return (
+            super().available
+            and monitor.get("state_code") == 7
+            and not monitor.get("dispensing", False)
+            and (self.coordinator.data or {}).get("recipes", {}).get(1, {}).get(233) is not None
+        )
+
+    @property
+    def extra_state_attributes(self):
+        return dict(getattr(self.coordinator, "last_save_result", {}) or {
+            "status": "Noch kein Test durchgeführt",
+            "scope": "Nur Sepp / Frei 1; Kaffeemenge",
+            "warning": "Experimenteller Speicherbefehl; eine ungewollte Zubereitung ist nicht ausgeschlossen",
+        })
 
     async def async_press(self):
-        raise HomeAssistantError(
-            "Speichern ist noch gesperrt: Rezept- und Namens-Schreibprotokoll "
-            "für ECAM370.95.T muss erst bestätigt werden."
-        )
+        try:
+            await self.coordinator.async_experimental_save_test_coffee()
+        except Exception as exc:
+            raise HomeAssistantError(f"Speichertest gescheitert: {exc}") from exc
