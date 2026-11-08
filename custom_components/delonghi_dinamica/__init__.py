@@ -53,17 +53,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         old_id = registry.async_get_entity_id("button", DOMAIN, old_unique_id)
         if old_id is not None:
             registry.async_remove(old_id)
-        # Preserve selected-value sensors and entity IDs, but show recipe
-        # measurements only in the configuration inputs on this device page.
+        # "Hidden" entities still appear as (Versteckt) on the device page.
+        # Disable the three legacy selected-value sensors in the registry,
+        # without deleting their entity IDs/history from Home Assistant.
         for suffix in ("_selected_coffee", "_selected_milk", "_selected_strength"):
             selected_id = registry.async_get_entity_id(
                 "sensor", DOMAIN, f"{entry.data[CONF_MAC]}{suffix}"
             )
             if selected_id is not None:
                 selected_entry = registry.async_get(selected_id)
-                if selected_entry is not None and selected_entry.hidden_by is None:
+                if selected_entry is not None and selected_entry.disabled_by is None:
                     registry.async_update_entity(
-                        selected_id, hidden_by=er.RegistryEntryHider.INTEGRATION
+                        selected_id,
+                        disabled_by=er.RegistryEntryDisabler.INTEGRATION,
                     )
     except Exception:
         hass.data[DOMAIN].pop(entry.entry_id, None)
