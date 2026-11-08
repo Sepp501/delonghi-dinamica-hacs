@@ -86,6 +86,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
     entities.append(DinamicaSensor(coordinator, entry, "machine_status", "Maschinenstatus"))
     for key, (label, _unit) in STATISTICS.items():
         entities.append(DinamicaSensor(coordinator, entry, "statistic", label, key))
+    entities.append(DinamicaSensor(coordinator, entry, "statistics_raw", "Statistik-Rohwerte"))
     async_add_entities(entities)
 
 
@@ -130,7 +131,7 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
     @property
     def name(self):
         """Present live profile/recipe labels without changing entity IDs."""
-        if self._kind in ("profiles", "names", "machine_status", "statistic") or self._kind.startswith("selected_"):
+        if self._kind in ("profiles", "names", "machine_status", "statistic", "statistics_raw") or self._kind.startswith("selected_"):
             return self._attr_name
         data = self.coordinator.data or {}
         profile_id, recipe_id = self._recipe_key
@@ -154,6 +155,8 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
             return data.get("monitor") is not None
         if self._kind == "statistic":
             return self._recipe_key in data.get("statistics", {})
+        if self._kind == "statistics_raw":
+            return bool(data.get("statistics_raw"))
         if self._kind.startswith("selected_"):
             profile_id = self.coordinator.selected_profile_id
             recipe_id = self.coordinator.selected_recipe_id
@@ -180,6 +183,8 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
             return monitor["state"] if monitor else None
         if self._kind == "statistic":
             return data.get("statistics", {}).get(self._recipe_key)
+        if self._kind == "statistics_raw":
+            return len(data.get("statistics_raw", {}))
         if self._kind.startswith("selected_"):
             profile_id = self.coordinator.selected_profile_id
             recipe_id = self.coordinator.selected_recipe_id
@@ -203,6 +208,8 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
             return dict(data.get("monitor") or {})
         if self._kind == "statistic":
             return {"source": "DeLonghi A2 statistics"}
+        if self._kind == "statistics_raw":
+            return {"counter_ids": {str(k): v for k, v in data.get("statistics_raw", {}).items()}}
         if self._kind == "names":
             return {
                 "entries": data.get("names", []),
