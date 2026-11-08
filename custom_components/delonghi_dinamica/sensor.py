@@ -94,8 +94,13 @@ class DinamicaSensor(CoordinatorEntity, SensorEntity):
         self._kind = kind
         # Keep live controls and selected drink values in the main device view.
         # Lifetime counters, raw data and background recipe data are diagnostics.
-        if kind in ("profiles", "names", "recipe", "milk", "strength", "statistic", "statistics_raw"):
+        if kind in ("profiles", "names", "recipe", "milk", "strength", "statistics_raw"):
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        elif kind == "statistic" and recipe_key == "milk_cleaning_count":
+            # Keep the milk-system cleaning counter under Diagnostics.
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        # Coffee, milk-coffee, water and descale totals have no category:
+        # Home Assistant shows them in the regular Sensors section.
         # Retain selected-value entities as disabled legacy entities so they
         # cannot duplicate the editable values in the Configuration section.
         # Per-recipe sensors remain available in Diagnostics / for automations.
