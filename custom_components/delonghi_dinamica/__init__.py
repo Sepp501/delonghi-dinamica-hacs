@@ -53,6 +53,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         old_id = registry.async_get_entity_id("button", DOMAIN, old_unique_id)
         if old_id is not None:
             registry.async_remove(old_id)
+        # User-requested cleanup: these legacy controls and counters are
+        # no longer supported by this machine. Remove registry entries so
+        # they do not remain listed as unavailable after an upgrade.
+        obsolete_entities = (
+            ("button", f"{entry.data[CONF_MAC]}_ble_cache_mtu_diagnostic"),
+            ("binary_sensor", f"{entry.data[CONF_MAC]}_monitor_beans_empty"),
+            ("binary_sensor", f"{entry.data[CONF_MAC]}_monitor_filter_replace"),
+            ("sensor", f"{entry.data[CONF_MAC]}_statistics_filter_change_count"),
+        )
+        for domain, unique_id in obsolete_entities:
+            obsolete_id = registry.async_get_entity_id(domain, DOMAIN, unique_id)
+            if obsolete_id is not None:
+                registry.async_remove(obsolete_id)
         # Retire duplicate profile-2/3 recipe entities without deleting
         # their registry IDs or recorded history (safer for old references).
         for profile_id in (2, 3):
