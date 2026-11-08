@@ -11,19 +11,16 @@ from .recipe_edit_draft import (
 
 
 def get_original(coordinator):
-    """Recipe data for the selected drink in profile 1 (shared names)."""
+    """Return the six shared recipes, independent of profile selection."""
     recipe_id = coordinator.selected_recipe_id
-    profile_id = coordinator.selected_profile_id
     return ((coordinator.data or {}).get("recipes", {})
-            .get(profile_id, {}).get(recipe_id))
+            .get(1, {}).get(recipe_id))
 
 
 def initialize_draft(coordinator):
     """Load selected slot from cached readback; switching discards old draft."""
     recipe_id = coordinator.selected_recipe_id
-    profile_id = coordinator.selected_profile_id
-    if (getattr(coordinator, "recipe_draft_profile_id", None) != profile_id
-            or getattr(coordinator, "recipe_draft_recipe_id", None) != recipe_id
+    if (getattr(coordinator, "recipe_draft_recipe_id", None) != recipe_id
             or not hasattr(coordinator, "recipe_draft")):
         original = get_original(coordinator)
         names = (coordinator.data or {}).get("names", [])
@@ -42,7 +39,6 @@ def initialize_draft(coordinator):
             "pending": False,
         }
         coordinator.recipe_draft_recipe_id = recipe_id
-        coordinator.recipe_draft_profile_id = profile_id
     return coordinator.recipe_draft
 
 
@@ -126,7 +122,8 @@ class DinamicaDraftNumber(CoordinatorEntity, NumberEntity):
         except ValueError as exc:
             return {"saved_to_machine": False, "warning": str(exc)}
         return {
-            "profile_id": self.coordinator.selected_profile_id,
+            "profile_id": 1,
+            "shared_across_profiles": True,
             "recipe_id": self.coordinator.selected_recipe_id,
             "original_coffee_ml": candidate.coffee_ml_before,
             "proposed_coffee_ml": candidate.coffee_ml_after,
