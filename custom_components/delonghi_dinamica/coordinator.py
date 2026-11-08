@@ -89,8 +89,8 @@ class DinamicaCoordinator(DataUpdateCoordinator):
         name_changed = draft["name"] != draft["name_initial"]
         if not name_changed and not recipe_changed:
             raise ValueError("Keine Änderungen zum Speichern vorhanden")
-        if recipe_changed and recipe_id != 233:
-            raise ValueError("Rezeptwerte nur für Rezept 233 freigegeben; Name ist separat editierbar")
+        if recipe_changed and (recipe_id != 233 or self.selected_profile_id != 1):
+            raise ValueError("Rezeptwerte nur für Profil 1 / Rezept 233 freigegeben; Name separat editierbar")
         if recipe_changed:
             await self.async_experimental_save_test_coffee()
         if name_changed:
