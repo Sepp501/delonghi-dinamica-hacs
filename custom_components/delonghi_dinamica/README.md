@@ -2,6 +2,8 @@
 
 This component belongs to the public repository [Sepp501/delonghi-dinamica-hacs](https://github.com/Sepp501/delonghi-dinamica-hacs).
 
+**Supported model series:** De'Longhi Dinamica Plus **ECAM 370.95** only. The **ECAM 370.95.T** is the sole variant tested on real hardware; other 370.95 variants remain unverified. Other Dinamica, PrimaDonna, Eletta and ECAM series are outside this project's supported scope.
+
 Current implementation supports local BLE status, power-on, warnings, statistics, six shared configurable drinks, name changes and readback-verified recipe-value saving on the **ECAM 370.95.T**. It uses a 15-second status poll and a 120-second full refresh, and works with an ESPHome Bluetooth proxy.
 
 **No beverage-start, stop or power-off commands are exposed.** Only one BLE client should access the machine at a time.
