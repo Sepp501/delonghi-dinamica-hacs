@@ -13,7 +13,17 @@ from .recipe_edit_draft import (
 
 BREW_TAG_WIDTHS = {0x01: 2, 0x09: 2, 0x02: 1, 0x0C: 1}
 MODE_SAVE = 0x01
-TRIGGER_DONT_CARE = 0x00
+# Confirmed from the Coffee Link APK-derived builder: final byte packs
+# profile_id in bits 2..7 and operation in bits 0..1.
+# This is a *candidate* for ECAM370.95.T, not a verified successful save.
+ACTION_START = 0x01
+
+
+def profile_operation(profile_id: int, operation: int) -> int:
+    if not 1 <= profile_id <= 4 or not 0 <= operation <= 3:
+        raise ValueError("Unsupported profile or operation")
+    return ((profile_id & 0x3F) << 2) | (operation & 0x03)
+
 
 
 def make_save_probe(original, draft: dict) -> bytes:
@@ -48,9 +58,14 @@ def make_save_probe(original, draft: dict) -> bytes:
         ingredients.append(tag)
         ingredients.extend(int(value).to_bytes(width, "big"))
 
-    # [0x83,0xF0,recipe,trigger=DontCare,ingredient...,Save]
-    # No PREPARE opcode; success is verified separately using A6 readback.
-    body = bytes((0x83, 0xF0, TEST_RECIPE_ID, TRIGGER_DONT_CARE)) + bytes(ingredients) + bytes((MODE_SAVE,))
+    # [0x83,0xF0,recipe,action=START,ingredient...,profile+SAVE]
+    # START is also used by brewing; the SAVE operation is unconfirmed for
+    # this model and could still trigger brewing. Manual test only.
+    body = (
+        bytes((0x83, 0xF0, TEST_RECIPE_ID, ACTION_START))
+        + bytes(ingredients)
+        + bytes((profile_operation(TEST_PROFILE_ID, MODE_SAVE),))
+    )
     prefix = bytes((0x0D, len(body) + 3)) + body
     return prefix + binascii.crc_hqx(prefix, 0x1D0F).to_bytes(2, "big")
 

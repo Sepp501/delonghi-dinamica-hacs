@@ -41,11 +41,18 @@ class SaveProbeTests(unittest.TestCase):
         p = save.make_save_probe(recipe(), draft())
         self.assertEqual(p[0], 0x0D)
         self.assertEqual(len(p), p[1] + 1)
-        self.assertEqual(p[2:6], bytes((0x83, 0xF0, 233, 0x00)))
-        self.assertEqual(p[-3], 0x01)
+        self.assertEqual(p[2:6], bytes((0x83, 0xF0, 233, 0x01)))
+        self.assertEqual(p[-3], 0x05)
         self.assertEqual(int.from_bytes(p[-2:], "big"), binascii.crc_hqx(p[:-2], 0x1D0F))
         # Never include profile metadata tags.
         self.assertEqual(p[6:-3], bytes.fromhex("01 00 64 09 00 A0 02 03 0C 00"))
+
+    def test_profile_operation_encoding(self):
+        self.assertEqual(save.profile_operation(1, save.MODE_SAVE), 0x05)
+        self.assertEqual(save.profile_operation(1, 2), 0x06)
+        self.assertEqual(save.profile_operation(2, save.MODE_SAVE), 0x09)
+        with self.assertRaises(ValueError):
+            save.profile_operation(0, save.MODE_SAVE)
 
     def test_changes_outside_coffee_are_rejected(self):
         changes = [

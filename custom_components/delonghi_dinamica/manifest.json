@@ -1,7 +1,7 @@
 {
   "domain": "delonghi_dinamica",
   "name": "DeLonghi Dinamica Plus (Development)",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "documentation": "https://github.com/Sepp501/delonghi-dinamica-hacs",
   "issue_tracker": "https://github.com/Sepp501/delonghi-dinamica-hacs/issues",
   "config_flow": true,
